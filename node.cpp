@@ -9,12 +9,17 @@
 
 using namespace std;
 
+
+int detectorTid;
 bool busy = true;
+int timestamp;
 int myId; /* nodes ordinal number */
 int tids[NODENUM]; /* node task ids */
 int route[NODENUM]; /* 1-next hop */
 map<int, int> resources;/* owners */
-map<int, list<int> > myResources;/* who currently uses them / -1 available */
+map<int, list<int> > myResources;/* resource queues */
+
+int requestTime[RESOURCE_NUM]; /* resource request timestamp */
 
 /* currently requested resources */
 list<int> request;
@@ -25,8 +30,12 @@ inline int pos(int base, int offset) {
 	return (base + offset + NODENUM) % NODENUM;
 }
 
-inline int abs(int a){
+inline int abs(int a) {
 	return a > 0 ? a : -a;
+}
+
+inline int max(int a, int b){
+	return a>b ? a : b;
 }
 
 /*
@@ -39,6 +48,9 @@ void fetchMsg(Msg& msg, int msgtag) {
 
 	pvm_upkint(buf, size, 1);
 	msg.setMsg(myId, buf);
+
+	if (msgtag & USER_MSG_MASK)
+		timestamp = max(msg.timestamp, timestamp) + 1;
 }
 
 /*
@@ -46,10 +58,38 @@ void fetchMsg(Msg& msg, int msgtag) {
  */
 void sendMsg(Msg msg) {
 	int buf[BUF_SIZE];
+
+	if (msg.type & USER_MSG_MASK)
+		msg.timestamp = ++timestamp;
+
+
 	int size = msg.toIntArray(buf);
 
 
+	if (msg.dest == myId) {
+		printf("%d HELL NO! ;-P \n", myId);
+		switch (msg.type) {
+		case MSG_REQUEST:
+			printf("%d REQUEST BUG!!!\n", myId);
+			break;
+		case MSG_CANCEL:
+			printf("%d CANCEL BUG!!!\n", myId);
+			break;
 
+		case MSG_FREE:
+			printf("%d FREE BUG!!!\n", myId);
+			break;
+
+		case MSG_GRANT:
+			printf("%d GRANT BUG!!!\n", myId);
+			break;
+		default:
+			break;
+
+		}
+		fflush(0);
+		fflush(0);
+	}
 	pvm_initsend(PvmDataDefault);
 	pvm_pkint(buf, size, 1);
 	pvm_send(tids[route[msg.dest]], msg.type);
@@ -63,7 +103,7 @@ void forwardMsg(int destination, int msgtag) {
 	int dest = destination;
 
 
-	printf("*%d forwarding to %d\n", myId, route[dest]);
+	//printf("*%d forwarding to %d\n", myId, route[dest]);
 	/*
 	 * Receive remaining data
 	 */
@@ -89,6 +129,10 @@ void forwardMsg(int destination, int msgtag) {
 void grantResource(int resId) {
 	if (myResources[resId].empty())
 		return;
+
+	if (*myResources[resId].begin()==myId)
+		resourceGranted(resId);
+
 	Msg msg;
 	msg.setType(MSG_GRANT);
 	msg.data = resId;
@@ -103,17 +147,16 @@ void grantResource(int resId) {
 void freeResources() {
 
 	list<int>::iterator it;
-	printf("Freeing resources: ");
-		for(it = resInUse.begin();it!=resInUse.end();++it)
-			printf("%d ", *it);
-		printf("\n");
-		fflush(0);
-		fflush(0);
+	printf("%d (t:%d)Releasing resources: ", myId, timestamp);
+	for (it = resInUse.begin(); it != resInUse.end(); ++it)
+		printf("%d ", *it);
+	printf("\n");
+	fflush(0);
+	fflush(0);
 
 	Msg msg;
 	msg.setType(MSG_FREE);
 	msg.from = myId;
-
 
 	for (it = resInUse.begin(); it != resInUse.end(); ++it) {
 		if (resources[*it] == myId) {
@@ -129,26 +172,25 @@ void freeResources() {
 }
 
 /*
- * Cancel resource allocation
+ * Cancel resource request
  */
 void cancelResources() {
 
 	list<int>::iterator it;
-	printf("Cancelling resources: ");
-		for(it = request.begin();it!=request.end();++it)
-			printf("%d ", *it);
-		printf("\n");
-		fflush(0);
-		fflush(0);
+	printf("%d (t:%d)Cancelling resources: ", myId, timestamp);
+	for (it = request.begin(); it != request.end(); ++it)
+		printf("%d ", *it);
+	printf("\n");
+	fflush(0);
+	fflush(0);
 
 	Msg msg;
 	msg.setType(MSG_CANCEL);
 	msg.from = myId;
 
-
 	for (it = request.begin(); it != request.end(); ++it) {
 		if (resources[*it] == myId) {
-			myResources[*it].erase(myResources[*it].begin());
+			myResources[*it].remove(myId);
 			grantResource(*it);//check if sb is waiting for res
 		} else {
 			msg.data = *it;
@@ -163,13 +205,16 @@ void cancelResources() {
  * Action when a resource was granted
  */
 void resourceGranted(int resId) {
-	printf("Res GRANTED %d\n", resId);
+	printf("%d (t:%d)Res GRANTED %d\n", myId,timestamp, resId);
 	fflush(0);
 	fflush(0);
-	resInUse.insert(resInUse.begin(), resId);
-	request.remove(resId);
 
-	if (resInUse.size() >= minNeeded)
+	if (resInUse.size() < minNeeded) {
+		resInUse.insert(resInUse.begin(), resId);
+		request.remove(resId);
+	}
+
+	if ((resInUse.size() >= minNeeded)&&(!request.empty()))
 		cancelResources();
 }
 
@@ -209,8 +254,8 @@ void requestRes() {
 		available.erase(it);
 	}
 
-	printf("\n\nResources needed(%d): ", minNeeded);
-	for(it = request.begin();it!=request.end();++it)
+	printf("\n%d (t:%d)Resources needed(%d): ", myId, timestamp, minNeeded);
+	for (it = request.begin(); it != request.end(); ++it)
 		printf("%d ", *it);
 	printf("\n");
 	fflush(0);
@@ -219,7 +264,7 @@ void requestRes() {
 	/*
 	 * Request resources
 	 */
-	printf("my resources: ");
+	printf("%d (t:%d)my resources: ", myId, timestamp);
 	for (it = request.begin(); it != request.end(); ++it) {
 		if (resources[*it] == myId) {//add myself to my queue ^^
 			if (myResources[*it].empty()) {//
@@ -235,6 +280,7 @@ void requestRes() {
 			msg.from = myId;
 			msg.data = *it;
 			sendMsg(msg);
+			requestTime[*it] = timestamp;
 		}
 	}
 
@@ -252,13 +298,13 @@ void createRoute() {
 	//int edge = pos(myId, NODENUM / 2);
 	int next;
 	route[myId] = -1;
-	for (int i = myId+1; i < NODENUM + myId; ++i) {
-		if (i-myId< NODENUM/2)
+	for (int i = myId + 1; i < NODENUM + myId; ++i) {
+		if (i - myId < NODENUM / 2)
 			next = +1;
 		else
 			next = -1;
 
-		route[i%NODENUM] = pos(myId,next);
+		route[i % NODENUM] = pos(myId, next);
 	}
 }
 
@@ -267,6 +313,8 @@ int main() {
 	/*
 	 * Wait until all other nodes are active
 	 */
+
+
 	pvm_joingroup("init");
 	pvm_barrier("init", NODENUM + 1);
 
@@ -283,13 +331,19 @@ int main() {
 		resources[i] = resOwner;
 	}
 
+
+
 	/*
 	 * Prepare routing over token topology
 	 */
-	srand(myId);
+	srand(tids[myId]);
 	createRoute();
 
 
+	timestamp = 0;
+
+	for(i=0;i<RESOURCE_NUM;++i)
+		requestTime[i] = 0;
 
 	/*
 	 * ACTIVITY
@@ -305,11 +359,9 @@ int main() {
 		/*
 		 * If no requests were made and no resources are in use
 		 */
-		if(!myId)
-			sleep(1+rand()%5);
+		sleep(1 + rand() % 5);
 
-
-		if ((myId==0) && request.empty() && resInUse.empty())
+		if ((myId < 666) && request.empty() && resInUse.empty())//my < x -> for debug purpose
 			if (((float) rand() / (float) RAND_MAX) < REQUEST_PROB) {
 				requestRes();
 				if (resInUse.size() < minNeeded)
@@ -319,7 +371,7 @@ int main() {
 			}
 
 		/*
-		 * If no requests were made, but some resources are in use
+		 * w
 		 */
 		if (request.empty() && !resInUse.empty()) {
 			busy = true;
@@ -346,7 +398,7 @@ int main() {
 		 * Forward message
 		 */
 		if (dest != myId) {
-			printf("* %d dest %d *\n", myId, dest);
+			//printf("* %d dest %d *\n", myId, dest);
 			forwardMsg(dest, msgtag);
 			continue;
 		}
@@ -355,29 +407,29 @@ int main() {
 		 * Or process it
 		 */
 		Msg msg;
-		fetchMsg(msg, MSG_REQUEST);
-
+		if (msgtag & NON_MANAGING)
+			fetchMsg(msg, msgtag);
 
 		switch (msgtag) {
 		case MSG_REQUEST:
-			printf("%d Resource Requestd %d\n", myId, msg.data);
+			printf("%d (t:%d)Resource Request by: %d resId: %d\n", myId,timestamp, msg.from,
+					msg.data);
 
 			/*
 			 * Put the resource into the queue and grant it immediately if it
 			 * was free before
 			 */
 			myResources[msg.data].push_back(msg.from);
-			if (*myResources[msg.data].begin() == msg.from){
+			if (*myResources[msg.data].begin() == msg.from) {
 				printf("granted!\n");
 				grantResource(msg.data);
 
-			}
-			else
-				printf("THIS SHOULD NOT HAPPEN\n");
+			} else
+				printf("%d putting  %d on queue for res: %d\n", myId, msg.from, msg.data);
 
 			break;
 		case MSG_FREE:
-			printf("%d Resource freed %d\n", myId, msg.data);
+			printf("%d (t:%d)Resource released: %d\n", myId,timestamp, msg.data);
 			/*
 			 * Grant the resource to the next node on the list
 			 */
@@ -387,7 +439,7 @@ int main() {
 			}
 			break;
 		case MSG_CANCEL:
-			printf("%d Resource canceled %d\n", myId, msg.data);
+			printf("%d (t:%d)Resource canceled %d\n", myId,timestamp, msg.data);
 			/*
 			 * Remove the cancelling node from the list and grant the
 			 * resource to some other node if necessary
@@ -399,7 +451,27 @@ int main() {
 				myResources[msg.data].remove(msg.from);
 			break;
 		case MSG_GRANT:
+			if (msg.timestamp <= requestTime[msg.data]){//the message is late - epic fail =(
+				printf("%d (t:%d)Grant ignored(late message) res: %d\n", myId,timestamp, msg.data);
+				break;
+			}
 			resourceGranted(msg.data);
+			break;
+
+		case MSG_FLOOD:
+			//TODO flood message processing
+			break;
+
+		case MSG_ECHO:
+			//TODO echo message processing
+			break;
+		case MSG_SHORT:
+			//TODO short message processing
+			break;
+
+		case MSG_START_ALG:
+			pvm_upkint(&detectorTid,1,1);
+			//TODO start failure detection [node 0 only]
 			break;
 		default:
 			break;

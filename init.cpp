@@ -65,5 +65,13 @@ int main() {
 		printf("Wysylam %d\n", i);
 		pvm_send(tids[i], MSG_INIT);
 	}
+
+	ofstream outputFile;
+	outputFile.open("/tmp/node0.txt");
+	outputFile << tids[0];
+	outputFile.close();
+
+
+
 	pvm_exit();
 }
