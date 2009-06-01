@@ -25,6 +25,10 @@ inline int pos(int base, int offset) {
 	return (base + offset + NODENUM) % NODENUM;
 }
 
+inline int abs(int a){
+	return a > 0 ? a : -a;
+}
+
 /*
  * Read message from some other node
  */
@@ -44,6 +48,8 @@ void sendMsg(Msg msg) {
 	int buf[BUF_SIZE];
 	int size = msg.toIntArray(buf);
 
+
+
 	pvm_initsend(PvmDataDefault);
 	pvm_pkint(buf, size, 1);
 	pvm_send(tids[route[msg.dest]], msg.type);
@@ -56,6 +62,8 @@ void forwardMsg(int destination, int msgtag) {
 	int size = Msg::getSize(msgtag) - 1;
 	int dest = destination;
 
+
+	printf("*%d forwarding to %d\n", myId, route[dest]);
 	/*
 	 * Receive remaining data
 	 */
@@ -93,11 +101,20 @@ void grantResource(int resId) {
  * Free a resource
  */
 void freeResources() {
+
+	list<int>::iterator it;
+	printf("Freeing resources: ");
+		for(it = resInUse.begin();it!=resInUse.end();++it)
+			printf("%d ", *it);
+		printf("\n");
+		fflush(0);
+		fflush(0);
+
 	Msg msg;
 	msg.setType(MSG_FREE);
 	msg.from = myId;
 
-	list<int>::iterator it;
+
 	for (it = resInUse.begin(); it != resInUse.end(); ++it) {
 		if (resources[*it] == myId) {
 			myResources[*it].erase(myResources[*it].begin());
@@ -115,11 +132,20 @@ void freeResources() {
  * Cancel resource allocation
  */
 void cancelResources() {
+
+	list<int>::iterator it;
+	printf("Cancelling resources: ");
+		for(it = request.begin();it!=request.end();++it)
+			printf("%d ", *it);
+		printf("\n");
+		fflush(0);
+		fflush(0);
+
 	Msg msg;
 	msg.setType(MSG_CANCEL);
 	msg.from = myId;
 
-	list<int>::iterator it;
+
 	for (it = request.begin(); it != request.end(); ++it) {
 		if (resources[*it] == myId) {
 			myResources[*it].erase(myResources[*it].begin());
@@ -137,6 +163,9 @@ void cancelResources() {
  * Action when a resource was granted
  */
 void resourceGranted(int resId) {
+	printf("Res GRANTED %d\n", resId);
+	fflush(0);
+	fflush(0);
 	resInUse.insert(resInUse.begin(), resId);
 	request.remove(resId);
 
@@ -170,6 +199,7 @@ void requestRes() {
 	 */
 	list<int>::iterator it;
 	while (count--) {//get $count resources from all possible
+		i = 0;
 		it = available.begin();
 		int pos = rand() % available.size();
 		while (i++ < pos)
@@ -179,16 +209,25 @@ void requestRes() {
 		available.erase(it);
 	}
 
+	printf("\n\nResources needed(%d): ", minNeeded);
+	for(it = request.begin();it!=request.end();++it)
+		printf("%d ", *it);
+	printf("\n");
+	fflush(0);
+	fflush(0);
+
 	/*
 	 * Request resources
 	 */
-
+	printf("my resources: ");
 	for (it = request.begin(); it != request.end(); ++it) {
 		if (resources[*it] == myId) {//add myself to my queue ^^
 			if (myResources[*it].empty()) {//
 				resInUse.insert(resInUse.begin(), *it);
+				printf("%d ", *it);
 			}
 			myResources[*it].insert(myResources[*it].end(), myId);
+
 		} else {//send requests
 			Msg msg;
 			msg.setType(MSG_REQUEST);
@@ -199,6 +238,9 @@ void requestRes() {
 		}
 	}
 
+	printf("\n");
+	fflush(0);
+	fflush(0);
 	for (it = resInUse.begin(); it != resInUse.end(); ++it)
 		request.remove(*it);
 }
@@ -207,20 +249,16 @@ void requestRes() {
  * Prepare routing table
  */
 void createRoute() {
-	int edge = pos(myId, NODENUM / 2);
+	//int edge = pos(myId, NODENUM / 2);
+	int next;
 	route[myId] = -1;
-	for (int i = 0; i < NODENUM; ++i) {
-		if (i == myId)
-			continue;
-		if (edge > myId)
-			if ((i > myId) && (i <= edge))
-				route[i] = pos(myId, +1); //+ unarny ;-P
-			else
-				route[i] = pos(myId, -1);
-		else if ((i < myId) && (i >= edge))
-			route[i] = pos(myId, +1);
+	for (int i = myId+1; i < NODENUM + myId; ++i) {
+		if (i-myId< NODENUM/2)
+			next = +1;
 		else
-			route[i] = pos(myId, -1);
+			next = -1;
+
+		route[i%NODENUM] = pos(myId,next);
 	}
 }
 
@@ -235,8 +273,8 @@ int main() {
 	/*
 	 * Read data
 	 */
-	int i, myId, resOwner;
-	int tids[NODENUM];
+	int i, resOwner;
+
 	pvm_recv(-1, MSG_INIT);
 	pvm_upkint(&myId, 1, 1);
 	pvm_upkint(tids, NODENUM, 1);
@@ -250,6 +288,8 @@ int main() {
 	 */
 	srand(myId);
 	createRoute();
+
+
 
 	/*
 	 * ACTIVITY
@@ -265,7 +305,11 @@ int main() {
 		/*
 		 * If no requests were made and no resources are in use
 		 */
-		if (request.empty() && resInUse.empty())
+		if(!myId)
+			sleep(1+rand()%5);
+
+
+		if ((myId==0) && request.empty() && resInUse.empty())
 			if (((float) rand() / (float) RAND_MAX) < REQUEST_PROB) {
 				requestRes();
 				if (resInUse.size() < minNeeded)
@@ -302,6 +346,7 @@ int main() {
 		 * Forward message
 		 */
 		if (dest != myId) {
+			printf("* %d dest %d *\n", myId, dest);
 			forwardMsg(dest, msgtag);
 			continue;
 		}
@@ -311,17 +356,28 @@ int main() {
 		 */
 		Msg msg;
 		fetchMsg(msg, MSG_REQUEST);
+
+
 		switch (msgtag) {
 		case MSG_REQUEST:
+			printf("%d Resource Requestd %d\n", myId, msg.data);
+
 			/*
 			 * Put the resource into the queue and grant it immediately if it
 			 * was free before
 			 */
 			myResources[msg.data].push_back(msg.from);
-			if (*myResources[msg.data].begin() == msg.from)
+			if (*myResources[msg.data].begin() == msg.from){
+				printf("granted!\n");
 				grantResource(msg.data);
+
+			}
+			else
+				printf("THIS SHOULD NOT HAPPEN\n");
+
 			break;
 		case MSG_FREE:
+			printf("%d Resource freed %d\n", myId, msg.data);
 			/*
 			 * Grant the resource to the next node on the list
 			 */
@@ -331,6 +387,7 @@ int main() {
 			}
 			break;
 		case MSG_CANCEL:
+			printf("%d Resource canceled %d\n", myId, msg.data);
 			/*
 			 * Remove the cancelling node from the list and grant the
 			 * resource to some other node if necessary
@@ -347,7 +404,10 @@ int main() {
 		default:
 			break;
 		}
-		break;
+
+		fflush(0);
+		fflush(0);
+
 	}
 	pvm_exit();
 }

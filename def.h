@@ -8,13 +8,13 @@
 #include "messages.h"
 
 #define NODENAME		"node"
-#define NODENUM			10
+#define NODENUM			4
 
 #define NAMESIZE   		64
 #define BUF_SIZE 		32
 
 /* number of resources in the system - at least 1 for each node */
-#define RESOURCE_NUM 	30
+#define RESOURCE_NUM 	10
 
 /* probability of requesting and freeing resources */
 #define REQUEST_PROB 	0.75
@@ -22,7 +22,7 @@
 
 /* number of requested resources */
 #define REQUEST_MIN 	1
-#define REQUEST_MAX 	15
+#define REQUEST_MAX 	6
 
 #define MSG_MSTR 		1
 #define MSG_SLV  		2
