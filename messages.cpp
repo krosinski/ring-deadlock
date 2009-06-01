@@ -2,31 +2,29 @@
  * messages.cpp
  *
  *  Created on: 2009-05-28
- *      Author: chriss
+ *      Author: chriss, tzok
  */
 #include "def.h"
 
 #include <stdio.h>
 
-
-
-
-Msg::Msg(){
+Msg::Msg() {
 
 }
 
-Msg::Msg(int from, int dest, int type){
+Msg::Msg(int from, int dest, int type) {
 	this->dest = dest;
 	this->from = from;
 	this->setType(type);
 }
-Msg::~Msg(){}
-int Msg::toIntArray(int * buf){//static buffer
-	int i=0;
+Msg::~Msg() {
+}
+int Msg::toIntArray(int * buf) {//static buffer
+	int i = 0;
 	buf[i++] = this->dest;
 	buf[i++] = this->from;
 
-	switch(this->type){
+	switch (this->type) {
 	case MSG_GRANT:
 	case MSG_FREE:
 	case MSG_REQUEST:
@@ -41,13 +39,13 @@ int Msg::toIntArray(int * buf){//static buffer
 	return i;
 }
 
-int Msg::setMsg(int dest, int * buf){
+int Msg::setMsg(int dest, int * buf) {
 
-	int i =0;
+	int i = 0;
 	this->dest = dest;
 	this->from = buf[i++];
 
-	switch(this->type){
+	switch (this->type) {
 	case MSG_GRANT:
 	case MSG_FREE:
 	case MSG_REQUEST:
@@ -61,9 +59,9 @@ int Msg::setMsg(int dest, int * buf){
 	return i;
 }
 
-int Msg::getSize(int msgtype){
+int Msg::getSize(int msgtype) {
 	int msgsize;
-	switch(msgtype){
+	switch (msgtype) {
 	case MSG_GRANT:
 	case MSG_FREE:
 	case MSG_REQUEST:
@@ -77,34 +75,35 @@ int Msg::getSize(int msgtype){
 	return msgsize;
 }
 
-int Msg::setType(int type){
+int Msg::setType(int type) {
 	this->type = type;
 	this->size = Msg::getSize(type);
 }
 
-RequestMsg::RequestMsg(int from, int dest, int type, int data):  Msg(from, dest, type){
+RequestMsg::RequestMsg(int from, int dest, int type, int data) :
+	Msg(from, dest, type) {
 
 	this->data = data;
 
 }
 
-RequestMsg::RequestMsg() : Msg(){
+RequestMsg::RequestMsg() :
+	Msg() {
 
 }
 
-RequestMsg::~RequestMsg(){}
+RequestMsg::~RequestMsg() {
+}
 
-int RequestMsg::toIntArray(int * buf){
+int RequestMsg::toIntArray(int * buf) {
 	int i;
 	i = Msg::toIntArray(buf);
 	buf[i++] = this->data;
 
-
 	return i;
 }
 
-int RequestMsg::setMsg(int dest, int *buf){
+int RequestMsg::setMsg(int dest, int *buf) {
 	int i = Msg::setMsg(dest, buf);
 	this->data = buf[i++];
-
 }

@@ -8,7 +8,7 @@
 #ifndef MESSAGES_H_
 #define MESSAGES_H_
 
-class Msg{
+class Msg {
 
 public:
 	static const int BASE_SIZE = 2;
@@ -17,7 +17,6 @@ public:
 	int dest;//msg destination
 	int data;
 	int size;
-
 
 	Msg();
 	Msg(int from, int dest, int type);
@@ -28,7 +27,7 @@ public:
 	int setType(int type);
 };
 
-class RequestMsg : public Msg{
+class RequestMsg: public Msg {
 
 public:
 	static const int SIZE = 3;
@@ -40,7 +39,5 @@ public:
 	int toIntArray(int* buf);
 	int setMsg(int dest, int* buf);
 };
-
-
 
 #endif /* MESSAGES_H_ */
