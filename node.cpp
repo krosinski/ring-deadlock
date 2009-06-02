@@ -9,9 +9,10 @@
 
 using namespace std;
 
-
+int initTid;
 int detectorTid;
 bool busy = true;
+bool running = true;
 int timestamp;
 int myId; /* nodes ordinal number */
 int tids[NODENUM]; /* node task ids */
@@ -34,8 +35,8 @@ inline int abs(int a) {
 	return a > 0 ? a : -a;
 }
 
-inline int max(int a, int b){
-	return a>b ? a : b;
+inline int max(int a, int b) {
+	return a > b ? a : b;
 }
 
 /*
@@ -62,9 +63,7 @@ void sendMsg(Msg msg) {
 	if (msg.type & USER_MSG_MASK)
 		msg.timestamp = ++timestamp;
 
-
 	int size = msg.toIntArray(buf);
-
 
 	if (msg.dest == myId) {
 		printf("%d HELL NO! ;-P \n", myId);
@@ -102,7 +101,6 @@ void forwardMsg(int destination, int msgtag) {
 	int size = Msg::getSize(msgtag) - 1;
 	int dest = destination;
 
-
 	//printf("*%d forwarding to %d\n", myId, route[dest]);
 	/*
 	 * Receive remaining data
@@ -130,7 +128,7 @@ void grantResource(int resId) {
 	if (myResources[resId].empty())
 		return;
 
-	if (*myResources[resId].begin()==myId)
+	if (*myResources[resId].begin() == myId)
 		resourceGranted(resId);
 
 	Msg msg;
@@ -205,7 +203,7 @@ void cancelResources() {
  * Action when a resource was granted
  */
 void resourceGranted(int resId) {
-	printf("%d (t:%d)Res GRANTED %d\n", myId,timestamp, resId);
+	printf("%d (t:%d)Res GRANTED %d\n", myId, timestamp, resId);
 	fflush(0);
 	fflush(0);
 
@@ -214,7 +212,7 @@ void resourceGranted(int resId) {
 		request.remove(resId);
 	}
 
-	if ((resInUse.size() >= minNeeded)&&(!request.empty()))
+	if ((resInUse.size() >= minNeeded) && (!request.empty()))
 		cancelResources();
 }
 
@@ -314,14 +312,13 @@ int main() {
 	 * Wait until all other nodes are active
 	 */
 
-
 	pvm_joingroup("init");
 	pvm_barrier("init", NODENUM + 1);
 
 	/*
 	 * Read data
 	 */
-	int i, resOwner;
+	int i, resOwner, temp;
 
 	pvm_recv(-1, MSG_INIT);
 	pvm_upkint(&myId, 1, 1);
@@ -331,24 +328,21 @@ int main() {
 		resources[i] = resOwner;
 	}
 
-
-
 	/*
 	 * Prepare routing over token topology
 	 */
 	srand(tids[myId]);
 	createRoute();
 
-
 	timestamp = 0;
 
-	for(i=0;i<RESOURCE_NUM;++i)
+	for (i = 0; i < RESOURCE_NUM; ++i)
 		requestTime[i] = 0;
 
 	/*
 	 * ACTIVITY
 	 */
-	while (true) {
+	while (running) {
 		/*
 		 * Prepare timeout structure
 		 */
@@ -359,7 +353,7 @@ int main() {
 		/*
 		 * If no requests were made and no resources are in use
 		 */
-		sleep(1 + rand() % 5);
+		sleep(1 + rand() % 3);
 
 		if ((myId < 666) && request.empty() && resInUse.empty())//my < x -> for debug purpose
 			if (((float) rand() / (float) RAND_MAX) < REQUEST_PROB) {
@@ -371,7 +365,7 @@ int main() {
 			}
 
 		/*
-		 * w
+		 * when all resources have been collected
 		 */
 		if (request.empty() && !resInUse.empty()) {
 			busy = true;
@@ -412,8 +406,8 @@ int main() {
 
 		switch (msgtag) {
 		case MSG_REQUEST:
-			printf("%d (t:%d)Resource Request by: %d resId: %d\n", myId,timestamp, msg.from,
-					msg.data);
+			printf("%d (t:%d)Resource Request by: %d resId: %d\n", myId,
+					timestamp, msg.from, msg.data);
 
 			/*
 			 * Put the resource into the queue and grant it immediately if it
@@ -425,11 +419,13 @@ int main() {
 				grantResource(msg.data);
 
 			} else
-				printf("%d putting  %d on queue for res: %d\n", myId, msg.from, msg.data);
+				printf("%d putting  %d on queue for res: %d\n", myId, msg.from,
+						msg.data);
 
 			break;
 		case MSG_FREE:
-			printf("%d (t:%d)Resource released: %d\n", myId,timestamp, msg.data);
+			printf("%d (t:%d)Resource released: %d\n", myId, timestamp,
+					msg.data);
 			/*
 			 * Grant the resource to the next node on the list
 			 */
@@ -439,7 +435,7 @@ int main() {
 			}
 			break;
 		case MSG_CANCEL:
-			printf("%d (t:%d)Resource canceled %d\n", myId,timestamp, msg.data);
+			printf("%d (t:%d)Resource canceled %d\n", myId, timestamp, msg.data);
 			/*
 			 * Remove the cancelling node from the list and grant the
 			 * resource to some other node if necessary
@@ -451,8 +447,9 @@ int main() {
 				myResources[msg.data].remove(msg.from);
 			break;
 		case MSG_GRANT:
-			if (msg.timestamp <= requestTime[msg.data]){//the message is late - epic fail =(
-				printf("%d (t:%d)Grant ignored(late message) res: %d\n", myId,timestamp, msg.data);
+			if (msg.timestamp <= requestTime[msg.data]) {//the message is late - epic fail =(
+				printf("%d (t:%d)Grant ignored(late message) res: %d\n", myId,
+						timestamp, msg.data);
 				break;
 			}
 			resourceGranted(msg.data);
@@ -470,16 +467,52 @@ int main() {
 			break;
 
 		case MSG_START_ALG:
-			pvm_upkint(&detectorTid,1,1);
+			pvm_upkint(&detectorTid, 1, 1);
+
+			printf("%d STARTING DEADLOCK DETECTION\n");
+			fflush(0);
+			fflush(0);
+
 			//TODO start failure detection [node 0 only]
 			break;
+		case MSG_STOP:
+			pvm_upkint(&initTid, 1, 1);
+
+			printf("NODE %d TERMINATED\n", myId);
+			fflush(0);
+			fflush(0);
+
+			temp = 0;
+			if (initTid > 0) {
+				for (i = 0; i < NODENUM; ++i) {
+
+					if (i == myId)
+						continue;
+
+					pvm_initsend(PvmDataDefault);
+					pvm_pkint(&i, 1, 1);
+					pvm_pkint(&temp, 1, 1);
+					pvm_send(tids[i], MSG_STOP);
+
+				}
+			}
+
+			running = false;
+			break;
+
 		default:
 			break;
 		}
+	}//while(running)
 
-		fflush(0);
-		fflush(0);
+	pvm_joingroup("stop");
+	pvm_barrier("stop", NODENUM);
 
+	if (initTid) {
+		pvm_initsend(PvmDataDefault);
+		pvm_send(initTid, MSG_STOP);
+		sleep(1);
 	}
+
 	pvm_exit();
 }

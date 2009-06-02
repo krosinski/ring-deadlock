@@ -29,14 +29,38 @@ void initResources(map<int, int>& res) {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-int main() {
+int main(int argc, char **argv) {
 	/* resource id -> owner */
 	map<int, int> resources;
 	map<int, int>::iterator it;
 
+	int mytid = pvm_mytid();
 	/*
 	 * Initialize resource assignment
 	 */
+
+	if (argc > 1) {
+		int dest = 0;
+		int nodeId = 0;
+		ifstream ifs(TMP_FILE);
+		string temp;
+
+		getline(ifs, temp);
+		dest = atoi(temp.c_str());
+
+		printf("STARTING TERMINATION\n");
+		fflush(0);
+		fflush(0);
+		pvm_initsend(PvmDataDefault);
+		pvm_pkint(&nodeId, 1, 1);
+		pvm_pkint(&mytid, 1, 1);
+		pvm_send(dest, MSG_STOP);
+
+		pvm_recv(-1, MSG_STOP);
+		printf("TERMINATION COMPLETED\n");
+		pvm_exit();
+		return 0;
+	}
 	initResources(resources);
 
 	/*
@@ -67,11 +91,9 @@ int main() {
 	}
 
 	ofstream outputFile;
-	outputFile.open("/tmp/node0.txt");
+	outputFile.open(TMP_FILE);
 	outputFile << tids[0];
 	outputFile.close();
-
-
 
 	pvm_exit();
 }

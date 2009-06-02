@@ -11,6 +11,7 @@
 
 #include "messages.h"
 
+#define TMP_FILE		"/tmp/note0.txt"
 #define NODENAME		"node"
 #define NODENUM			10
 
@@ -40,7 +41,6 @@
 #define MSG_STOP 		0x01
 #define MSG_START_ALG	0x02
 
-
 /* node requesting or revoking a request */
 #define MSG_REQUEST 	0x10
 #define MSG_CANCEL 		0x11
@@ -49,13 +49,11 @@
 /* resource manager response */
 #define MSG_GRANT 		0x13
 
-
 /* deadlock detection messages */
 
 #define MSG_FLOOD		0x20
 #define MSG_ECHO		0x21
 #define MSG_SHORT		0x22
-
 
 /* prototypes */
 

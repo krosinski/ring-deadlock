@@ -26,7 +26,7 @@ int main() {
 	fflush(0);
 
 	int dest = 0;
-	ifstream ifs("/tmp/node0.txt");
+	ifstream ifs(TMP_FILE);
 	string temp;
 
 	getline(ifs, temp);
@@ -34,7 +34,7 @@ int main() {
 
 	pvm_initsend(PvmDataDefault);
 	pvm_pkint(&dest, 1, 1);
-	pvm_pkint(&mytid,1, 1);
+	pvm_pkint(&mytid, 1, 1);
 	pvm_send(node_tid, MSG_START_ALG);
 
 	//todo recieve status
