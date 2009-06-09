@@ -80,10 +80,11 @@ int Msg::getSize(int msgtype) {
 	case MSG_GRANT:
 	case MSG_FREE:
 	case MSG_REQUEST:
+	case MSG_CANCEL:
 		msgsize = 4;
 		break;
 
-	case MSG_CANCEL:
+
 	case MSG_FLOOD:
 	case MSG_ECHO:
 	case MSG_SHORT:
