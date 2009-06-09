@@ -23,7 +23,11 @@ public:
 	int timestamp;//lamport clock
 	int data;//data
 
-	float weight;// for deadlock detection ;-P
+	float weight;//  for deadlock detection ;-P
+	int starttime;// deadlock detection start time
+	int init;// deadlock detection
+
+
 	int size;//
 
 	Msg();

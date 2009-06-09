@@ -36,6 +36,8 @@ int Msg::toIntArray(int * buf) {//static buffer
 	case MSG_FLOOD:
 	case MSG_SHORT:
 		buf[i++] = (int)(this->weight*PRECISION);
+		buf[i++] =  this->init;
+		buf[i++] =  this->starttime;
 		break;
 	default:
 		break;
@@ -62,6 +64,8 @@ int Msg::setMsg(int dest, int * buf) {
 	case MSG_FLOOD:
 	case MSG_SHORT:
 		this->weight = (float)buf[i++]/PRECISION;
+		this->init = buf[i++];
+		this->starttime = buf[i++];
 		break;
 	default:
 		break;
@@ -76,11 +80,14 @@ int Msg::getSize(int msgtype) {
 	case MSG_GRANT:
 	case MSG_FREE:
 	case MSG_REQUEST:
+		msgsize = 4;
+		break;
+
 	case MSG_CANCEL:
 	case MSG_FLOOD:
 	case MSG_ECHO:
 	case MSG_SHORT:
-		msgsize = 4;
+		msgsize = 6;
 		break;
 
 
