@@ -69,10 +69,10 @@ int main(int argc, char **argv) {
 	printf("Spawning nodes\n");
 	fflush(0);
 	int tids[NODENUM];
-	int childrenCount = pvm_spawn(NODENAME, NULL, PvmTaskDefault, "", NODENUM,
-			tids);
-	pvm_joingroup("init");
-	pvm_barrier("init", NODENUM + 1);
+	int childrenCount = pvm_spawn((char*) NODENAME, NULL, PvmTaskDefault,
+			(char*) "", NODENUM, tids);
+	pvm_joingroup((char*) "init");
+	pvm_barrier((char*) "init", NODENUM + 1);
 
 	/*
 	 * Send all nodes needed information

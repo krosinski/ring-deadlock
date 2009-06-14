@@ -36,9 +36,7 @@ public:
 	static int getSize(int msgtype);
 	int toIntArray(int* buf);
 	int setMsg(int dest, int* buf);
-	int setType(int type);
+	void setType(int type);
 };
-
-
 
 #endif /* MESSAGES_H_ */

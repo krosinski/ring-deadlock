@@ -50,12 +50,25 @@
 #define MSG_GRANT 		0x13
 
 /* deadlock detection messages */
+#define MSG_FLOOD			0x20
+#define MSG_ECHO			0x21
+#define MSG_SHORT			0x22
+#define MSG_DEADLOCK_INFO	0x23
 
-#define MSG_FLOOD		0x20
-#define MSG_ECHO		0x21
-#define MSG_SHORT		0x22
+#define	NO_DEADLOCK			0
+#define DEADLOCK			1
+
+#define EPS					0.00001
+
+/* structures */
+typedef struct {
+	std::list<int> out; /* nodes on which i-th is waiting */
+	std::list<int> in; /* nodes waiting on i in the snapshot */
+	int t; /* time when init initiated a snapshot */
+	bool s; /* local blocked state as seen by snapshot */
+	int p; /* value of p as seen by snapshot */
+} SNAPSHOT;
 
 /* prototypes */
-
 void resourceGranted(int resId);
 

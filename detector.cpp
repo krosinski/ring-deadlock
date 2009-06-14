@@ -10,36 +10,46 @@
 using namespace std;
 
 int main() {
-
-	int mytid;
-	int node_tid;
-
-	int nproc, i, who;
-
-	mytid = pvm_mytid();
-
-	//gethostname(slave_name,NAMESIZE);
-
-
-	printf("detector started\n");
-	fflush(0);
+	printf("Deadlock detection started\n");
 	fflush(0);
 
-	int dest = 0;
-	ifstream ifs(TMP_FILE);
 	string temp;
-
+	ifstream ifs(TMP_FILE);
 	getline(ifs, temp);
-	node_tid = atoi(temp.c_str());
+	int nodeToCheck = atoi(temp.c_str());
 
+	printf("nodeToCheck = %X\n", nodeToCheck);
+	fflush(0);
+
+	/*
+	 * FIXME
+	 * Send signal to start deadlock detection
+	 * to selected node
+	 */
+	int dest = nodeToCheck;
+	int mytid = pvm_mytid();
+	int timestamp = 0;
 	pvm_initsend(PvmDataDefault);
 	pvm_pkint(&dest, 1, 1);
 	pvm_pkint(&mytid, 1, 1);
-	pvm_send(node_tid, MSG_START_ALG);
+	pvm_pkint(&timestamp, 1, 1);
+	pvm_send(nodeToCheck, MSG_START_ALG);
 
-	//todo recieve status
+	/*
+	 * FIXME
+	 * Receive answer from given node
+	 */
+	int isDeadlock;
+	pvm_recv(nodeToCheck, MSG_DEADLOCK_INFO);
+	printf("AAA\n");
+	fflush(0);
+	pvm_upkint(&isDeadlock, 1, 1);
+
+	if (isDeadlock == NO_DEADLOCK)
+		printf("Deadlock was NOT DETECTED on node %d\n", nodeToCheck);
+	else
+		printf("Deadlock DETECTED on node %d\n", nodeToCheck);
+	fflush(0);
 
 	pvm_exit();
-
 }
-

@@ -30,14 +30,15 @@ int Msg::toIntArray(int * buf) {//static buffer
 	case MSG_FREE:
 	case MSG_REQUEST:
 	case MSG_CANCEL:
+	case MSG_DEADLOCK_INFO:
 		buf[i++] = this->data;
 		break;
 	case MSG_ECHO:
 	case MSG_FLOOD:
 	case MSG_SHORT:
-		buf[i++] = (int)(this->weight*PRECISION);
-		buf[i++] =  this->init;
-		buf[i++] =  this->starttime;
+		buf[i++] = (int) (this->weight * PRECISION);
+		buf[i++] = this->init;
+		buf[i++] = this->starttime;
 		break;
 	default:
 		break;
@@ -58,12 +59,13 @@ int Msg::setMsg(int dest, int * buf) {
 	case MSG_FREE:
 	case MSG_REQUEST:
 	case MSG_CANCEL:
+	case MSG_DEADLOCK_INFO:
 		this->data = buf[i++];
 		break;
 	case MSG_ECHO:
 	case MSG_FLOOD:
 	case MSG_SHORT:
-		this->weight = (float)buf[i++]/PRECISION;
+		this->weight = (float) buf[i++] / PRECISION;
 		this->init = buf[i++];
 		this->starttime = buf[i++];
 		break;
@@ -81,17 +83,15 @@ int Msg::getSize(int msgtype) {
 	case MSG_FREE:
 	case MSG_REQUEST:
 	case MSG_CANCEL:
+	case MSG_DEADLOCK_INFO:
 		msgsize = 4;
 		break;
-
 
 	case MSG_FLOOD:
 	case MSG_ECHO:
 	case MSG_SHORT:
 		msgsize = 6;
 		break;
-
-
 
 	default:
 		msgsize = 3;
@@ -100,9 +100,7 @@ int Msg::getSize(int msgtype) {
 	return msgsize;
 }
 
-int Msg::setType(int type) {
+void Msg::setType(int type) {
 	this->type = type;
 	this->size = Msg::getSize(type);
 }
-
-
