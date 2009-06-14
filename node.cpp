@@ -130,8 +130,10 @@ void grantResource(int resId) {
 	if (myResources[resId].empty())
 		return;
 
-	if (*myResources[resId].begin() == myId)
+	if (*myResources[resId].begin() == myId){
 		resourceGranted(resId);
+		return;
+	}
 
 	Msg msg;
 	msg.setType(MSG_GRANT);
