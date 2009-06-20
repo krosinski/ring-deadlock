@@ -26,7 +26,7 @@ int main() {
 	 * Send signal to start deadlock detection
 	 * to selected node
 	 */
-	int dest = nodeToCheck;
+	int dest = 0;
 	int mytid = pvm_mytid();
 	int timestamp = 0;
 	pvm_initsend(PvmDataDefault);
@@ -41,14 +41,12 @@ int main() {
 	 */
 	int isDeadlock;
 	pvm_recv(nodeToCheck, MSG_DEADLOCK_INFO);
-	printf("AAA\n");
-	fflush(0);
 	pvm_upkint(&isDeadlock, 1, 1);
 
 	if (isDeadlock == NO_DEADLOCK)
-		printf("Deadlock was NOT DETECTED on node %d\n", nodeToCheck);
+		printf("Deadlock was NOT DETECTED on node %X\n", nodeToCheck);
 	else
-		printf("Deadlock DETECTED on node %d\n", nodeToCheck);
+		printf("Deadlock DETECTED on node %X\n", nodeToCheck);
 	fflush(0);
 
 	pvm_exit();

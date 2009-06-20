@@ -1,8 +1,11 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 #include <unistd.h>
+
 #include <pvm3.h>
+
 #include <map>
 #include <list>
 #include <iostream>
@@ -58,7 +61,7 @@
 #define	NO_DEADLOCK			0
 #define DEADLOCK			1
 
-#define EPS					0.00001
+#define EPS					0.0001
 
 /* structures */
 typedef struct {
@@ -69,6 +72,18 @@ typedef struct {
 	int p; /* value of p as seen by snapshot */
 } SNAPSHOT;
 
-/* prototypes */
-void resourceGranted(int resId);
+typedef struct {
+	int from, resource;
+} REQUEST;
 
+typedef struct {
+	bool wait;
+	int time;
+	int timeBlock;
+	std::list<REQUEST> in; /* list of requests before current */
+	std::list<int> out; /* list of resources wanted by current node */
+	std::list<int> inUse; /* list of resources granted */
+	std::map<int, int> granted; /* list of resources granted [which] = who*/
+	int p;
+	float weight;
+} STATE;

@@ -6,43 +6,81 @@
  */
 
 #include "def.h"
-
 using namespace std;
 
-int initTid;
-int detectorTid;
-bool busy = true;
-bool running = true;
-int timestamp;
-int myId; /* nodes ordinal number */
-int tids[NODENUM]; /* node task ids */
-int route[NODENUM]; /* 1-next hop */
-map<int, int> resources;/* owners */
-map<int, list<int> > myResources;/* resource queues */
+inline int abs(int);
+inline void cancel(int, int, int);
+void createRoute(void);
+void fetchMessage(Msg&, int);
+void forwardMessage(int, int);
+void free_(int, int, int);
+void listRemove(list<REQUEST>&, REQUEST&);
+inline int max(int, int);
+void message(int, int, int, int);
+inline int pos(int, int);
+void randomizeRequests(void);
+void receiveCancel(REQUEST&);
+void receiveFree(REQUEST&);
+void receiveReply(int);
+void receiveRequest(REQUEST&);
+inline int repliesNeeded(void);
+inline void reply(int, int, int);
+inline void request(int, int, int);
+void sendMessage(Msg&);
+void sendReply(REQUEST&);
+void sendRequest();
 
-int requestTime[RESOURCE_NUM]; /* resource request timestamp */
+int detectorId, myId;
+int requestTime[RESOURCE_NUM], resources[RESOURCE_NUM], route[NODENUM],
+		tids[NODENUM];
 
-/* currently requested resources */
-list<int> request;
-list<int> resInUse;
-int minNeeded;
+STATE state;
+SNAPSHOT snapshot;
 
-inline int pos(int base, int offset) {
-	return (base + offset + NODENUM) % NODENUM;
-}
+list<int> requests;
 
+/*
+ * abs()
+ */
 inline int abs(int a) {
 	return a > 0 ? a : -a;
 }
 
-inline int max(int a, int b) {
-	return a > b ? a : b;
+/*
+ * cancel()
+ */
+inline void cancel(int from, int to, int res) {
+	if (from != to) {
+		message(from, to, res, MSG_CANCEL);
+		return;
+	}
+	REQUEST req;
+	req.from = from;
+	req.resource = res;
+	receiveCancel(req);
 }
 
 /*
+ * createRoute()
+ * Prepare routing table
+ */
+void createRoute() {
+	route[myId] = -1;
+	int next;
+	for (int i = myId + 1; i < NODENUM + myId; ++i) {
+		if (i - myId < NODENUM / 2)
+			next = +1;
+		else
+			next = -1;
+		route[i % NODENUM] = pos(myId, next);
+	}
+}
+
+/*
+ * fetchMessage()
  * Read message from some other node
  */
-void fetchMsg(Msg& msg, int msgtag) {
+void fetchMessage(Msg& msg, int msgtag) {
 	int buf[BUF_SIZE];
 	msg.setType(msgtag);
 	int size = msg.size - 1;
@@ -51,59 +89,17 @@ void fetchMsg(Msg& msg, int msgtag) {
 	msg.setMsg(myId, buf);
 
 	if (msgtag & USER_MSG_MASK)
-		timestamp = max(msg.timestamp, timestamp) + 1;
+		state.time = max(msg.timestamp, state.time) + 1;
 }
 
 /*
- * Send message to some other node
- */
-void sendMsg(Msg msg) {
-	int buf[BUF_SIZE];
-
-	if (msg.type & USER_MSG_MASK)
-		msg.timestamp = ++timestamp;
-
-	int size = msg.toIntArray(buf);
-
-	/* FIXME
-	 if (msg.dest == myId) {
-	 printf("%d HELL NO! ;-P \n", myId);
-	 switch (msg.type) {
-	 case MSG_REQUEST:
-	 printf("%d REQUEST BUG!!!\n", myId);
-	 break;
-	 case MSG_CANCEL:
-	 printf("%d CANCEL BUG!!!\n", myId);
-	 break;
-
-	 case MSG_FREE:
-	 printf("%d FREE BUG!!!\n", myId);
-	 break;
-
-	 case MSG_GRANT:
-	 printf("%d GRANT BUG!!!\n", myId);
-	 break;
-	 default:
-	 break;
-
-	 }
-	 fflush(0);
-	 fflush(0);
-	 }
-	 */
-	pvm_initsend(PvmDataDefault);
-	pvm_pkint(buf, size, 1);
-	pvm_send(tids[route[msg.dest]], msg.type);
-}
-
-/*
+ * forwardMsg()
  * Forward message
  */
-void forwardMsg(int destination, int msgtag) {
+void forwardMessage(int destination, int msgtag) {
 	int size = Msg::getSize(msgtag) - 1;
 	int dest = destination;
 
-	//printf("*%d forwarding to %d\n", myId, route[dest]);
 	/*
 	 * Receive remaining data
 	 */
@@ -124,289 +120,328 @@ void forwardMsg(int destination, int msgtag) {
 }
 
 /*
- * Grant a resource
+ * free_()
  */
-void grantResource(int resId) {
-	if (myResources[resId].empty())
-		return;
-
-	if (*myResources[resId].begin() == myId){
-		resourceGranted(resId);
+void free_(int from, int to, int res) {
+	if (from != to) {
+		message(from, to, res, MSG_FREE);
 		return;
 	}
-
-	Msg msg;
-	msg.setType(MSG_GRANT);
-	msg.data = resId;
-	msg.from = myId;
-	msg.dest = *myResources[resId].begin();
-	sendMsg(msg);
+	REQUEST req;
+	req.from = from;
+	req.resource = res;
+	receiveFree(req);
 }
 
 /*
- * Free a resource
+ * listRemove()
+ * Removes one REQUEST from the list
  */
-void freeResources() {
-
-	list<int>::iterator it;
-	//	printf("%d (t:%d)Releasing resources: ", myId, timestamp);
-	//	for (it = resInUse.begin(); it != resInUse.end(); ++it)
-	//		printf("%d ", *it);
-	//	printf("\n");
-	//	fflush(0);
-	//	fflush(0);
-
-	Msg msg;
-	msg.setType(MSG_FREE);
-	msg.from = myId;
-
-	for (it = resInUse.begin(); it != resInUse.end(); ++it) {
-		if (resources[*it] == myId) {
-			myResources[*it].erase(myResources[*it].begin());
-			grantResource(*it);
-		} else {
-			msg.data = *it;
-			msg.dest = resources[*it];
-			sendMsg(msg);
+void listRemove(list<REQUEST> &l, REQUEST &req) {
+	list<REQUEST>::iterator i;
+	for (i = l.begin(); i != l.end(); ++i)
+		if ((i->from == req.from) && (i->resource == req.resource)) {
+			l.erase(i);
+			break;
 		}
-	}
-	resInUse.clear();
 }
 
 /*
- * Cancel resource request
+ * max()
  */
-void cancelResources() {
+inline int max(int a, int b) {
+	return a > b ? a : b;
+}
 
-	list<int>::iterator it;
-	//	printf("%d (t:%d)Cancelling resources: ", myId, timestamp);
-	//	for (it = request.begin(); it != request.end(); ++it)
-	//		printf("%d ", *it);
-	//	printf("\n");
-	//	fflush(0);
-	//	fflush(0);
-
+/*
+ * message()
+ */
+void message(int from, int to, int res, int type) {
 	Msg msg;
-	msg.setType(MSG_CANCEL);
-	msg.from = myId;
-
-	for (it = request.begin(); it != request.end(); ++it) {
-		if (resources[*it] == myId) {
-			myResources[*it].remove(myId);
-			grantResource(*it);//check if sb is waiting for res
-		} else {
-			msg.data = *it;
-			msg.dest = resources[*it];
-			sendMsg(msg);
-		}
-	}
-	request.clear();
+	msg.data = res;
+	msg.dest = to;
+	msg.from = from;
+	msg.size = msg.getSize(type);
+	msg.timestamp = state.time++;
+	msg.type = type;
+	sendMessage(msg);
 }
 
 /*
- * Action when a resource was granted
+ * pos()
  */
-void resourceGranted(int resId) {
-	//	printf("%d (t:%d)Res GRANTED %d\n", myId, timestamp, resId);
-	//	fflush(0);
-	//	fflush(0);
-
-	if ((int) resInUse.size() < minNeeded) {
-		resInUse.insert(resInUse.begin(), resId);
-		request.remove(resId);
-	}
-
-	if (((int) resInUse.size() >= minNeeded) && (!request.empty()))
-		cancelResources();
+inline int pos(int base, int offset) {
+	return (base + offset + NODENUM) % NODENUM;
 }
 
 /*
- * Request a resource
+ * randomizeRequests()
  */
-void requestRes() {
-	request.clear();
-	resInUse.clear();
-
+void randomizeRequests() {
 	/*
-	 * Prepare list of available resources
+	 * Shuffle resource allocation
 	 */
-	int i;
-	list<int> available;
+	int resources[RESOURCE_NUM];
+	int i, j;
 	for (i = 0; i < RESOURCE_NUM; ++i)
-		available.insert(available.begin(), i);
-
-	/*
-	 * Get random number of resources to request
-	 */
-	int count = REQUEST_MIN + rand() % (REQUEST_MAX - REQUEST_MIN + 1);
-	minNeeded = 1 + rand() % count;
-
-	/*
-	 * Generate random request list
-	 */
-	list<int>::iterator it;
-	while (count--) {//get $count resources from all possible
-		i = 0;
-		it = available.begin();
-		int pos = rand() % available.size();
-		while (i++ < pos)
-			++it;
-
-		request.insert(request.begin(), *it);
-		available.erase(it);
+		resources[i] = i;
+	for (i = 1; i < RESOURCE_NUM; ++i) {
+		j = rand() % i;
+		int temp = resources[i];
+		resources[i] = resources[j];
+		resources[j] = temp;
 	}
 
-	//	printf("\n%d (t:%d)Resources needed(%d): ", myId, timestamp, minNeeded);
-	//	for (it = request.begin(); it != request.end(); ++it)
-	//		printf("%d ", *it);
-	//	printf("\n");
-	//	fflush(0);
-	//	fflush(0);
-
 	/*
-	 * Request resources
+	 * Get random number of resources needed
 	 */
-	//	printf("%d (t:%d)my resources: ", myId, timestamp);
-	for (it = request.begin(); it != request.end(); ++it) {
-		if (resources[*it] == myId) {//add myself to my queue ^^
-			if (myResources[*it].empty()) {//
-				resInUse.insert(resInUse.begin(), *it);
-				//				printf("%d ", *it);
-			}
-			myResources[*it].insert(myResources[*it].end(), myId);
-
-		} else {//send requests
-			Msg msg;
-			msg.setType(MSG_REQUEST);
-			msg.dest = resources[*it];
-			msg.from = myId;
-			msg.data = *it;
-			sendMsg(msg);
-			requestTime[*it] = timestamp;
-		}
-	}
-
-	//	printf("\n");
-	//	fflush(0);
-	//	fflush(0);
-	for (it = resInUse.begin(); it != resInUse.end(); ++it)
-		request.remove(*it);
+	int requestCount = REQUEST_MIN + rand() % (REQUEST_MAX - REQUEST_MIN + 1);
+	for (i = 0; i < requestCount; ++i)
+		requests.push_back(resources[i]);
 }
 
 /*
- * Prepare routing table
+ * receiveCancel()
+ * Executed by node i when it receives a cancel from j
  */
-void createRoute() {
-	//int edge = pos(myId, NODENUM / 2);
-	int next;
-	route[myId] = -1;
-	for (int i = myId + 1; i < NODENUM + myId; ++i) {
-		if (i - myId < NODENUM / 2)
-			next = +1;
-		else
-			next = -1;
-		route[i % NODENUM] = pos(myId, next);
+void receiveCancel(REQUEST &req) {
+	map<int, int>::iterator i = state.granted.find(req.resource);
+	if ((i != state.granted.end()) && (state.granted[req.resource] == req.from)) {
+		/* FIXME */
+		printf("FREE instead of CANCEL\n");
+		fflush(0);
+		REQUEST temp;
+		temp.from = req.from;
+		temp.resource = req.resource;
+		receiveFree(temp);
+		printf("FREE received successfully\n");
+		fflush(0);
+		return;
 	}
+	else
+		listRemove(state.in, req);
+}
+
+/*
+ * FIXME
+ * receiveFree()
+ */
+void receiveFree(REQUEST &req) {
+	listRemove(state.in, req);
+	printf("listRemove() CORRECT\n");
+	fflush(0);
+
+	state.granted.erase(req.resource);
+	printf("erase CORRECT\n");
+	fflush(0);
+
+	list<REQUEST>::iterator i;
+	for (i = state.in.begin(); i != state.in.end(); ++i)
+		if (i->resource == req.resource) {
+			/* FIXME Tutaj chyba leży błąd */
+			state.granted[req.resource] = i->from;
+			req.from = i->from;
+			sendReply(req);
+			printf("loop in CORRECT\n");
+			fflush(0);
+			break;
+		}
+	printf("loop out CORRECT\n");
+	fflush(0);
+}
+
+/*
+ * receiveReply()
+ * Executed by node i when it receives a reply from j to its request
+ */
+void receiveReply(int resource) {
+	state.inUse.push_back(resource);
+
+	list<int>::iterator i, j;
+	for (i = state.out.begin(); i != state.out.end(); ++i) {
+		if (*i == resource) {
+			state.out.erase(i);
+			state.p--;
+			if (!state.p) {
+				state.wait = false;
+				for (j = state.out.begin(); j != state.out.end(); ++j)
+					cancel(myId, resources[*j], *j);
+				state.out.clear();
+				for (j = state.inUse.begin(); j != state.inUse.end(); ++j)
+					free_(myId, resources[*j], *j);
+				state.inUse.clear();
+			}
+			break;
+		}
+	}
+}
+
+/*
+ * receiveRequest()
+ * Executed by node i when it receives a request made by j
+ */
+void receiveRequest(REQUEST &request) {
+	state.in.push_back(request);
+}
+
+/*
+ * repliesNeeded()
+ */
+inline int repliesNeeded() {
+	return 1; //state.out.size() / 2;
+}
+
+/*
+ * reply()
+ */
+void reply(int from, int to, int res) {
+	if (from != to) {
+		message(from, to, res, MSG_GRANT);
+		return;
+	}
+	receiveReply(res);
+}
+
+/*
+ * request()
+ */
+void request(int from, int to, int res) {
+	if (from != to) {
+		message(from, to, res, MSG_REQUEST);
+		return;
+	}
+	REQUEST req;
+	req.from = from;
+	req.resource = res;
+	receiveRequest(req);
+}
+
+/*
+ * sendMessage()
+ * Send message to some other node
+ */
+void sendMessage(Msg &msg) {
+	int buf[BUF_SIZE];
+
+	if (msg.type & USER_MSG_MASK)
+		msg.timestamp = ++state.time;
+
+	int size = msg.toIntArray(buf);
+	pvm_initsend(PvmDataDefault);
+	pvm_pkint(buf, size, 1);
+	pvm_send(tids[route[msg.dest]], msg.type);
+}
+
+/*
+ * sendReply()
+ * Executed by node i when it replies to a request by j
+ */
+void sendReply(REQUEST &req) {
+	listRemove(state.in, req);
+	state.granted[req.resource] = req.from;
+	reply(myId, req.from, req.resource);
+}
+
+/*
+ * sendRequest()
+ * Executed by node i when it blocks on a p-out-of-q request
+ */
+void sendRequest() {
+	state.out.clear();
+
+	list<int>::iterator i;
+	for (i = requests.begin(); i != requests.end(); ++i) {
+		state.out.push_back(*i);
+		request(myId, resources[*i], *i);
+		requestTime[*i] = state.time;
+	}
+	state.p = repliesNeeded();
+	state.timeBlock = state.time;
+	state.wait = true;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 int main() {
 	/*
-	 * Local snapshot and weight
+	 * Local state and snapshot
 	 */
-	float weight = 0;
-	SNAPSHOT snapshot;
+	state.wait = false;
+	state.time = 0;
+	state.timeBlock = 0;
+	state.in.clear();
+	state.out.clear();
+	state.inUse.clear();
+	state.granted.clear();
+	state.p = 0;
+	state.weight = 1.0;
+
 	snapshot.out.clear();
 	snapshot.in.clear();
-	snapshot.t = 0;
+	snapshot.t = -1;
 	snapshot.s = false;
 
 	/*
 	 * Wait until all other nodes are active
 	 */
-
 	pvm_joingroup((char*) "init");
 	pvm_barrier((char*) "init", NODENUM + 1);
 
 	/*
 	 * Read data
 	 */
-	int i, resOwner, temp;
-
 	pvm_recv(-1, MSG_INIT);
 	pvm_upkint(&myId, 1, 1);
 	pvm_upkint(tids, NODENUM, 1);
-	for (i = 0; i < RESOURCE_NUM; ++i) {
-		pvm_upkint(&resOwner, 1, 1);
-		resources[i] = resOwner;
-	}
+	pvm_upkint(resources, RESOURCE_NUM, 1);
+	srand(tids[myId] * time(0));
 
 	/*
 	 * Prepare routing over token topology
 	 */
-	srand(tids[myId]);
 	createRoute();
-
-	timestamp = 0;
-
-	for (i = 0; i < RESOURCE_NUM; ++i)
-		requestTime[i] = 0;
+	memset(requestTime, 0, sizeof(requestTime));
 
 	/*
 	 * ACTIVITY
 	 */
+	bool running = true;
+	int initId;
 	while (running) {
 		/*
-		 * Prepare timeout structure
+		 * Random "processing" time
 		 */
-		struct timeval to;
-		to.tv_sec = 1;
-		to.tv_usec = 0;
+		//sleep(rand() & 3);
 
 		/*
-		 * If no requests were made and no resources are in use
+		 * Randomize requests
 		 */
-		sleep(1 + rand() % 3);
-
-		if ((myId < 666) && request.empty() && resInUse.empty())//my < x -> for debug purpose
-			if (((float) rand() / (float) RAND_MAX) < REQUEST_PROB) {
-				requestRes();
-				if ((int) resInUse.size() < minNeeded)
-					busy = false;
-				else
-					busy = true;
-			}
-
-		/*
-		 * When all resources have been collected
-		 */
-		if (request.empty() && !resInUse.empty()) {
-			busy = true;
-			if (((float) rand() / (float) RAND_MAX) < FREE_PROB)
-				freeResources();
+		if (!state.wait) {
+			randomizeRequests();
+			sendRequest();
 		}
 
 		/*
 		 * Check incoming messages
 		 */
-		int bufid;
-		usleep(100);
-		if (!(bufid = pvm_trecv(-1, -1, &to)))
+		struct timeval timeout;
+		timeout.tv_sec = 1;
+		timeout.tv_usec = 0;
+		int bufid = pvm_trecv(-1, -1, &timeout);
+		if (!bufid)
 			continue;
 
 		/*
 		 * Read incoming message
 		 */
-		int dest, msgsize, msgtag, sender;
-		pvm_bufinfo(bufid, &msgsize, &msgtag, &sender);
-		pvm_upkint(&dest, 1, 1);
+		int from, to, size, tag;
+		pvm_bufinfo(bufid, &size, &tag, &from);
+		pvm_upkint(&to, 1, 1);
 
 		/*
 		 * Forward message
 		 */
-		if (dest != myId) {
-			//printf("* %d dest %d *\n", myId, dest);
-			forwardMsg(dest, msgtag);
+		if (to != myId) {
+			forwardMessage(to, tag);
 			continue;
 		}
 
@@ -414,124 +449,179 @@ int main() {
 		 * Or process it
 		 */
 		Msg msg;
-		if (msgtag & NON_MANAGING)
-			fetchMsg(msg, msgtag);
+		if (tag & NON_MANAGING)
+			fetchMessage(msg, tag);
 
-		switch (msgtag) {
+		/* FIXME */
+
+		char *action;
+		switch (msg.type) {
 		case MSG_REQUEST:
-			printf("%d (t:%d)Resource Request by: %d resId: %d\n", myId,
-					timestamp, msg.from, msg.data);
-
-			/*
-			 * Put the resource into the queue and grant it immediately if it
-			 * was free before
-			 */
-			myResources[msg.data].push_back(msg.from);
-			if (*myResources[msg.data].begin() == msg.from) {
-				printf("granted!\n");
-				grantResource(msg.data);
-
-			} else
-				printf("%d putting  %d on queue for res: %d\n", myId, msg.from,
-						msg.data);
-
+			action = "REQUEST";
+			break;
+		case MSG_CANCEL:
+			action = "CANCEL";
 			break;
 		case MSG_FREE:
-			printf("%d (t:%d)Resource released: %d\n", myId, timestamp,
-					msg.data);
+			action = "FREE";
+			break;
+		case MSG_GRANT:
+			action = "GRANT";
+			break;
+		case MSG_FLOOD:
+			action = "FLOOD";
+			break;
+		case MSG_SHORT:
+			action = "SHORT";
+			break;
+		case MSG_ECHO:
+			action = "ECHO";
+			break;
+		}
+		printf("%d -> %d\t%s\t%d\n", msg.from, msg.dest, action, msg.data);
+		fflush(0);
+
+		int i, temp;
+		REQUEST req;
+		req.from = msg.from;
+		req.resource = msg.data;
+		switch (tag) {
+		case MSG_REQUEST:
+			/*
+			 * Save the request on a list. Grant immediately if needed
+			 */
+			receiveRequest(req);
+			if (state.granted.find(req.resource) == state.granted.end())
+				sendReply(req);
+			break;
+
+		case MSG_FREE:
 			/*
 			 * Grant the resource to the next node on the list
 			 */
-			if (*myResources[msg.data].begin() == msg.from) {
-				myResources[msg.data].pop_front();
-				grantResource(msg.data);
-			}
+			receiveFree(req);
 			break;
+
 		case MSG_CANCEL:
-			printf("%d (t:%d)Resource canceled %d\n", myId, timestamp, msg.data);
-			/*
-			 * Remove the cancelling node from the list and grant the
-			 * resource to some other node if necessary
-			 */
-			if (*myResources[msg.data].begin() == msg.from) {
-				myResources[msg.data].pop_front();
-				grantResource(msg.data);
-			} else
-				myResources[msg.data].remove(msg.from);
+			receiveCancel(req);
+			/* FIXME */
+			printf("CANCEL received successfully\n");
+			fflush(0);
 			break;
+
 		case MSG_GRANT:
-			if (msg.timestamp <= requestTime[msg.data]) {//the message is late - epic fail =(
-				printf("%d (t:%d)Grant ignored(late message) res: %d\n", myId,
-						timestamp, msg.data);
-				break;
-			}
-			resourceGranted(msg.data);
+			/* TODO Tutaj należy dodać sprawdzanie numeru zgłoszenia */
+			if (msg.timestamp > requestTime[msg.data])
+				receiveReply(msg.data);
 			break;
 
+			/* FIXME FIXME FIXME Tutaj zaczyna się obsługa wiadomości algorytmu detekcji FIXME FIXME FIXME */
 		case MSG_FLOOD:
-			/*
-			 * FIXME
-			 * Valid FLOOD for a new snapshot
-			 */
-			if (snapshot.t < msg.starttime) {
-				/*
-				 * FIXME
-				 * Create new snapshot
-				 */
-				snapshot.t = msg.starttime;
-				snapshot.s = !busy;
-				snapshot.in.clear();
-				snapshot.in.push_back(msg.from);
-				snapshot.out.clear();
-				for (list<int>::iterator it = request.begin(); it
-						!= request.end(); ++it)
-					snapshot.out.push_back(*it);
-
-				if (!busy) {
+			if (myId != msg.init) {
+				if (snapshot.t < msg.starttime) {
 					/*
-					 * FIXME
-					 * Node is blocked
+					 * Create new snapshot
 					 */
-					snapshot.p = minNeeded;
-					for (list<int>::iterator it = request.begin(); it
-							!= request.end(); ++it) {
-						Msg flood(myId, *it, MSG_FLOOD);
-						flood.weight = msg.weight / (float) request.size();
-						flood.init = msg.init;
-						flood.starttime = msg.starttime;
-						sendMsg(flood);
+					printf("Valid FLOOD for a new snapshot. ");
+					snapshot.t = msg.starttime;
+					snapshot.s = state.wait;
+					snapshot.in.clear();
+					snapshot.in.push_back(msg.from);
+					snapshot.out.clear();
+					for (list<int>::iterator it = requests.begin(); it
+							!= requests.end(); ++it)
+						snapshot.out.push_back(*it);
+
+					if (snapshot.s) {
+						/*
+						 * Node is blocked
+						 */
+						snapshot.p = state.p;
+						printf("Node is blocked. p = %d. Sending FLOOD to: ",
+								snapshot.p);
+						for (list<int>::iterator it = requests.begin(); it
+								!= requests.end(); ++it) {
+							printf("%x ", tids[resources[*it]]);
+							if (myId == resources[*it]) {
+								Msg shortMsg(myId, msg.init, MSG_SHORT);
+								shortMsg.weight = msg.weight
+										/ (float) requests.size();
+								shortMsg.init = msg.init;
+								shortMsg.starttime = msg.starttime;
+								sendMessage(shortMsg);
+							} else {
+								Msg flood(myId, resources[*it], MSG_FLOOD);
+								flood.weight = msg.weight
+										/ (float) requests.size();
+								flood.init = msg.init;
+								flood.starttime = msg.starttime;
+								sendMessage(flood);
+							}
+						}
+						printf("\n");
+						fflush(0);
+					} else {
+						/*
+						 * Node is active
+						 */
+						printf("Node is active. Answering with ECHO to %x\n",
+								tids[msg.from]);
+						fflush(0);
+						snapshot.p = 0;
+						Msg echo(myId, msg.from, MSG_ECHO);
+						echo.weight = msg.weight;
+						echo.init = msg.init;
+						echo.starttime = msg.starttime;
+						sendMessage(echo);
+
+						snapshot.in.remove(msg.from);
 					}
 				} else {
 					/*
-					 * FIXME
-					 * Node is active
+					 * Valid FLOOD for current snapshot
 					 */
-					snapshot.p = 0;
-					Msg echo(myId, msg.from, MSG_ECHO);
-					echo.weight = msg.weight;
-					echo.init = msg.init;
-					echo.starttime = msg.starttime;
-					sendMsg(echo);
-
-					snapshot.in.remove(msg.from);
+					printf("Valid FLOOD for current snapshot. ");
+					if (!snapshot.s) {
+						printf("Answering with ECHO to %x\n", tids[msg.from]);
+						Msg echo(myId, msg.from, MSG_ECHO);
+						echo.weight = msg.weight;
+						echo.init = msg.init;
+						echo.starttime = msg.starttime;
+						sendMessage(echo);
+					} else {
+						printf("Answering with SHORT to %x\n", tids[msg.init]);
+						Msg shortMsg(myId, msg.init, MSG_SHORT);
+						shortMsg.weight = msg.weight;
+						shortMsg.init = msg.init;
+						shortMsg.starttime = msg.starttime;
+						sendMessage(shortMsg);
+					}
+					fflush(0);
 				}
-			} else {
-				/*
-				 * FIXME
-				 * Valid FLOOD for current snapshot
-				 */
-				if (!snapshot.s) {
-					Msg echo(myId, msg.from, MSG_ECHO);
-					echo.weight = msg.weight;
-					echo.init = msg.init;
-					echo.starttime = msg.starttime;
-					sendMsg(echo);
-				} else {
-					Msg shortMsg(myId, msg.init, MSG_SHORT);
-					shortMsg.weight = msg.weight;
-					shortMsg.init = msg.init;
-					shortMsg.starttime = msg.starttime;
-					sendMsg(shortMsg);
+				break;
+			}
+			/*
+			 * There is no "break" for purpose here!!!
+			 * If the FLOOD is directed into the initiatior
+			 * then pretend it's a SHORT
+			 */
+		case MSG_SHORT:
+			MSG_SHORT_: if (!state.wait) {
+				int decision = NO_DEADLOCK;
+				pvm_initsend(PvmDataDefault);
+				pvm_pkint(&decision, 1, 1);
+				pvm_send(detectorId, MSG_DEADLOCK_INFO);
+			}
+			if ((snapshot.t == msg.starttime) && (snapshot.s == true)) {
+				state.weight += msg.weight;
+				printf("SHORT for currently initiated snapshot. Weight: %f\n",
+						state.weight);
+				fflush(0);
+				if (state.weight >= 1.0f - EPS) {
+					int decision = DEADLOCK;
+					pvm_initsend(PvmDataDefault);
+					pvm_pkint(&decision, 1, 1);
+					pvm_send(detectorId, MSG_DEADLOCK_INFO);
 				}
 			}
 			break;
@@ -539,143 +629,147 @@ int main() {
 		case MSG_ECHO:
 			if (snapshot.t == msg.starttime) {
 				/*
-				 * FIXME
 				 * Valid ECHO for current snapshot
 				 */
 				snapshot.out.remove(msg.from);
 				if (!snapshot.s) {
+					if (myId == msg.init)
+						goto MSG_SHORT_;
+					printf("Valid ECHO for current snapshot. ");
+					printf("Node is active. Answering with SHORT to %x\n",
+							tids[msg.init]);
+					fflush(0);
 					Msg shortMsg(myId, msg.init, MSG_SHORT);
 					shortMsg.weight = msg.weight;
 					shortMsg.init = msg.init;
 					shortMsg.starttime = msg.starttime;
-					sendMsg(shortMsg);
+					sendMessage(shortMsg);
 				} else {
-					if (--snapshot.p) {
+					printf("Valid ECHO for current snapshot. ");
+					snapshot.p--;
+					if (!snapshot.p) {
 						snapshot.s = false;
 						if (myId == msg.init) {
+							printf("Algorithm finished. NO DEADLOCK\n");
+							fflush(0);
 							int decision = NO_DEADLOCK;
 							pvm_initsend(PvmDataDefault);
 							pvm_pkint(&decision, 1, 1);
-							pvm_send(detectorTid, MSG_DEADLOCK_INFO);
+							pvm_send(detectorId, MSG_DEADLOCK_INFO);
 							break;
 						}
+						printf(
+								"My need for resources is fulfilled. Sending ECHO to: ");
 						for (list<int>::iterator it = snapshot.in.begin(); it
 								!= snapshot.in.end(); ++it) {
+							printf("%x ", tids[*it]);
 							Msg echo(myId, *it, MSG_ECHO);
 							echo.weight = msg.weight
 									/ (float) snapshot.in.size();
 							echo.init = msg.init;
 							echo.starttime = msg.starttime;
-							sendMsg(echo);
+							sendMessage(echo);
 						}
+						printf("\n");
+						fflush(0);
 					} else {
+						printf(
+								"Node is still blocked. Answering with SHORT to %x\n",
+								tids[msg.init]);
+						fflush(0);
+						if (myId == msg.init)
+							goto MSG_SHORT_;
 						Msg shortMsg(myId, msg.init, MSG_SHORT);
 						shortMsg.weight = msg.weight;
 						shortMsg.init = msg.init;
 						shortMsg.starttime = msg.starttime;
-						sendMsg(shortMsg);
+						sendMessage(shortMsg);
 					}
-				}
-			}
-			break;
-		case MSG_SHORT:
-			/*
-			 * FIXME
-			 */
-			if ((snapshot.t == msg.starttime) && (snapshot.s == true)) {
-				weight += msg.weight;
-				if (weight >= 1.0f - EPS) {
-					int decision = DEADLOCK;
-					pvm_initsend(PvmDataDefault);
-					pvm_pkint(&decision, 1, 1);
-					pvm_send(detectorTid, MSG_DEADLOCK_INFO);
 				}
 			}
 			break;
 
 		case MSG_START_ALG:
-			pvm_upkint(&detectorTid, 1, 1);
+			pvm_upkint(&detectorId, 1, 1);
 
 			/*
-			 * FIXME
 			 * If selected node is active, it does not look for
 			 * deadlock in its neighbourhood
 			 */
-			if (busy) {
+			if (!state.wait) {
 				printf("I am active. No deadlock\n");
 				fflush(0);
 				int decision = NO_DEADLOCK;
 				pvm_initsend(PvmDataDefault);
 				pvm_pkint(&decision, 1, 1);
-				pvm_send(detectorTid, MSG_DEADLOCK_INFO);
+				pvm_send(detectorId, MSG_DEADLOCK_INFO);
 				break;
 			}
 
 			/*
-			 * FIXME
 			 * Create local snapshot
 			 */
-			printf("I am inactive. Creating local snapshot\n");
+			printf("Node is blocked. Creating local snapshot\n");
 			fflush(0);
-			weight = 0;
-			snapshot.t = timestamp;
+			state.weight = 0;
+			snapshot.t = state.time;
 			snapshot.s = true;
-			snapshot.p = minNeeded;
+			snapshot.p = state.p;
 			snapshot.out.clear();
-			for (list<int>::iterator it = request.begin(); it != request.end(); ++it)
+			for (list<int>::iterator it = requests.begin(); it
+					!= requests.end(); ++it)
 				snapshot.out.push_back(*it);
 
 			/*
-			 * FIXME
 			 * Send FLOOD to all out of q nodes
 			 */
-			printf("Sending FLOOD to all out of q nodes\n");
-			fflush(0);
-			for (list<int>::iterator it = request.begin(); it != request.end(); ++it) {
-				Msg flood(myId, *it, MSG_FLOOD);
-				flood.weight = 1.0f / (float) request.size();
+			printf("p = %d. Sending FLOOD to all out of q nodes: ", snapshot.p);
+			for (list<int>::iterator it = requests.begin(); it
+					!= requests.end(); ++it) {
+				printf("%x ", tids[resources[*it]]);
+				if (myId == resources[*it]) {
+					state.weight += 1.0f / (float) requests.size();
+					continue;
+				}
+				Msg flood(myId, resources[*it], MSG_FLOOD);
+				flood.weight = 1.0f / (float) requests.size();
 				flood.init = myId;
-				flood.starttime = timestamp;
-				sendMsg(flood);
+				flood.starttime = state.time;
+				sendMessage(flood);
 			}
+			printf("\n");
+			fflush(0);
 			break;
 
 		case MSG_STOP:
-			pvm_upkint(&initTid, 1, 1);
-
+			pvm_upkint(&initId, 1, 1);
 			printf("NODE %d TERMINATED\n", myId);
 			fflush(0);
-			fflush(0);
-
 			temp = 0;
-			if (initTid > 0) {
+			if (initId) {
 				for (i = 0; i < NODENUM; ++i) {
-
 					if (i == myId)
 						continue;
-
 					pvm_initsend(PvmDataDefault);
 					pvm_pkint(&i, 1, 1);
 					pvm_pkint(&temp, 1, 1);
 					pvm_send(tids[i], MSG_STOP);
-
 				}
 			}
-
 			running = false;
 			break;
 
 		default:
 			break;
 		}
-	}//while(running)
+	}
 
 	pvm_joingroup((char*) "stop");
 	pvm_barrier((char*) "stop", NODENUM);
 
-	if (initTid) {
+	if (initId) {
 		pvm_initsend(PvmDataDefault);
-		pvm_send(initTid, MSG_STOP);
+		pvm_send(initId, MSG_STOP);
 		sleep(1);
 	}
 
