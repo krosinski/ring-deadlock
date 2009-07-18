@@ -14,6 +14,7 @@ void createRoute(void);
 void fetchMessage(Msg&, int);
 void forwardMessage(int, int);
 void free_(int, int, int);
+void grantFreeResources(void);
 void listRemove(list<REQUEST>&, REQUEST&);
 inline int max(int, int);
 void message(int, int, int, int);
@@ -109,7 +110,7 @@ void forwardMessage(int destination, int msgtag) {
 	/*
 	 * Pack the data
 	 */
-	pvm_initsend(PvmDataDefault);
+	pvm_initsend( PvmDataDefault);
 	pvm_pkint(&dest, 1, 1);
 	pvm_pkint(buf, size, 1);
 
@@ -131,6 +132,34 @@ void free_(int from, int to, int res) {
 	req.from = from;
 	req.resource = res;
 	receiveFree(req);
+}
+
+/*
+ * grantFreeResources()
+ * Grants all free resources, such that some node is waiting for them
+ */
+void grantFreeResources() {
+	list<REQUEST>::iterator i;
+	list<REQUEST> toGrant;
+	set<int> resourcesToGrant;
+
+	/*
+	 * Create a list of resources that are free, yet some node is waiting
+	 * for it. Only unique resources are possible
+	 */
+	for (i = state.in.begin(); i != state.in.end(); ++i)
+		if ((state.granted.find(i->resource) != state.granted.end())
+				&& (resourcesToGrant.find(i->resource)
+						== resourcesToGrant.end())) {
+			toGrant.push_back(*i);
+			resourcesToGrant.insert(i->resource);
+		}
+
+	/*
+	 * Grant these resources
+	 */
+	for (i = toGrant.begin(); i != toGrant.end(); ++i)
+		sendReply(*i);
 }
 
 /*
@@ -205,49 +234,27 @@ void randomizeRequests() {
  * Executed by node i when it receives a cancel from j
  */
 void receiveCancel(REQUEST &req) {
-	map<int, int>::iterator i = state.granted.find(req.resource);
-	if ((i != state.granted.end()) && (state.granted[req.resource] == req.from)) {
-		/* FIXME */
-		printf("FREE instead of CANCEL\n");
-		fflush(0);
-		REQUEST temp;
-		temp.from = req.from;
-		temp.resource = req.resource;
-		receiveFree(temp);
-		printf("FREE received successfully\n");
-		fflush(0);
-		return;
-	}
-	else
-		listRemove(state.in, req);
+	if (state.granted.find(req.resource) != state.granted.end())
+		state.granted.erase(req.resource);
+	listRemove(state.in, req);
+	return;
 }
 
 /*
- * FIXME
  * receiveFree()
  */
 void receiveFree(REQUEST &req) {
 	listRemove(state.in, req);
-	printf("listRemove() CORRECT\n");
-	fflush(0);
-
 	state.granted.erase(req.resource);
-	printf("erase CORRECT\n");
-	fflush(0);
 
 	list<REQUEST>::iterator i;
 	for (i = state.in.begin(); i != state.in.end(); ++i)
 		if (i->resource == req.resource) {
-			/* FIXME Tutaj chyba leży błąd */
 			state.granted[req.resource] = i->from;
 			req.from = i->from;
 			sendReply(req);
-			printf("loop in CORRECT\n");
-			fflush(0);
 			break;
 		}
-	printf("loop out CORRECT\n");
-	fflush(0);
 }
 
 /*
@@ -264,12 +271,14 @@ void receiveReply(int resource) {
 			state.p--;
 			if (!state.p) {
 				state.wait = false;
+				requests.clear();
 				for (j = state.out.begin(); j != state.out.end(); ++j)
 					cancel(myId, resources[*j], *j);
 				state.out.clear();
 				for (j = state.inUse.begin(); j != state.inUse.end(); ++j)
 					free_(myId, resources[*j], *j);
 				state.inUse.clear();
+
 			}
 			break;
 		}
@@ -288,7 +297,7 @@ void receiveRequest(REQUEST &request) {
  * repliesNeeded()
  */
 inline int repliesNeeded() {
-	return 1; //state.out.size() / 2;
+	return state.out.size() / 2;
 }
 
 /*
@@ -327,7 +336,7 @@ void sendMessage(Msg &msg) {
 		msg.timestamp = ++state.time;
 
 	int size = msg.toIntArray(buf);
-	pvm_initsend(PvmDataDefault);
+	pvm_initsend( PvmDataDefault);
 	pvm_pkint(buf, size, 1);
 	pvm_send(tids[route[msg.dest]], msg.type);
 }
@@ -410,12 +419,17 @@ int main() {
 		/*
 		 * Random "processing" time
 		 */
-		//sleep(rand() & 3);
+		//sleep(1);//rand() & 3);
+
+		/*
+		 * Grant all resources that are free, but some node waits for them
+		 */
+		grantFreeResources();
 
 		/*
 		 * Randomize requests
 		 */
-		if (!state.wait) {
+		if ((!state.wait) && (rand() & 1) && (rand() & 1)) {
 			randomizeRequests();
 			sendRequest();
 		}
@@ -453,7 +467,6 @@ int main() {
 			fetchMessage(msg, tag);
 
 		/* FIXME */
-
 		char *action;
 		switch (msg.type) {
 		case MSG_REQUEST:
@@ -478,7 +491,7 @@ int main() {
 			action = "ECHO";
 			break;
 		}
-		printf("%d -> %d\t%s\t%d\n", msg.from, msg.dest, action, msg.data);
+		//printf("%d -> %d\t%s\t%d\n", msg.from, msg.dest, action, msg.data);
 		fflush(0);
 
 		int i, temp;
@@ -504,18 +517,16 @@ int main() {
 
 		case MSG_CANCEL:
 			receiveCancel(req);
-			/* FIXME */
-			printf("CANCEL received successfully\n");
-			fflush(0);
 			break;
 
 		case MSG_GRANT:
-			/* TODO Tutaj należy dodać sprawdzanie numeru zgłoszenia */
 			if (msg.timestamp > requestTime[msg.data])
 				receiveReply(msg.data);
 			break;
 
-			/* FIXME FIXME FIXME Tutaj zaczyna się obsługa wiadomości algorytmu detekcji FIXME FIXME FIXME */
+			/*
+			 * Deadlock detection algorithm is below
+			 */
 		case MSG_FLOOD:
 			if (myId != msg.init) {
 				if (snapshot.t < msg.starttime) {
@@ -528,8 +539,8 @@ int main() {
 					snapshot.in.clear();
 					snapshot.in.push_back(msg.from);
 					snapshot.out.clear();
-					for (list<int>::iterator it = requests.begin(); it
-							!= requests.end(); ++it)
+					for (list<int>::iterator it = state.out.begin(); it
+							!= state.out.end(); ++it)
 						snapshot.out.push_back(*it);
 
 					if (snapshot.s) {
@@ -539,20 +550,20 @@ int main() {
 						snapshot.p = state.p;
 						printf("Node is blocked. p = %d. Sending FLOOD to: ",
 								snapshot.p);
-						for (list<int>::iterator it = requests.begin(); it
-								!= requests.end(); ++it) {
+						for (list<int>::iterator it = state.out.begin(); it
+								!= state.out.end(); ++it) {
 							printf("%x ", tids[resources[*it]]);
 							if (myId == resources[*it]) {
 								Msg shortMsg(myId, msg.init, MSG_SHORT);
 								shortMsg.weight = msg.weight
-										/ (float) requests.size();
+										/ (float) state.out.size();
 								shortMsg.init = msg.init;
 								shortMsg.starttime = msg.starttime;
 								sendMessage(shortMsg);
 							} else {
 								Msg flood(myId, resources[*it], MSG_FLOOD);
 								flood.weight = msg.weight
-										/ (float) requests.size();
+										/ (float) state.out.size();
 								flood.init = msg.init;
 								flood.starttime = msg.starttime;
 								sendMessage(flood);
@@ -574,7 +585,12 @@ int main() {
 						echo.starttime = msg.starttime;
 						sendMessage(echo);
 
-						snapshot.in.remove(msg.from);
+						list<int>::iterator it;
+						for (it = snapshot.in.begin(); it != snapshot.in.end(); it++)
+							if (*it == msg.from) {
+								snapshot.in.erase(it);
+								break;
+							}
 					}
 				} else {
 					/*
@@ -606,12 +622,15 @@ int main() {
 			 * then pretend it's a SHORT
 			 */
 		case MSG_SHORT:
-			MSG_SHORT_: if (!state.wait) {
-				int decision = NO_DEADLOCK;
-				pvm_initsend(PvmDataDefault);
-				pvm_pkint(&decision, 1, 1);
-				pvm_send(detectorId, MSG_DEADLOCK_INFO);
-			}
+			MSG_SHORT_: ;
+			/* FIXME
+			 if (!state.wait) {
+			 int decision = NO_DEADLOCK;
+			 pvm_initsend( PvmDataDefault);
+			 pvm_pkint(&decision, 1, 1);
+			 pvm_send(detectorId, MSG_DEADLOCK_INFO);
+			 }
+			 */
 			if ((snapshot.t == msg.starttime) && (snapshot.s == true)) {
 				state.weight += msg.weight;
 				printf("SHORT for currently initiated snapshot. Weight: %f\n",
@@ -619,7 +638,7 @@ int main() {
 				fflush(0);
 				if (state.weight >= 1.0f - EPS) {
 					int decision = DEADLOCK;
-					pvm_initsend(PvmDataDefault);
+					pvm_initsend( PvmDataDefault);
 					pvm_pkint(&decision, 1, 1);
 					pvm_send(detectorId, MSG_DEADLOCK_INFO);
 				}
@@ -631,7 +650,12 @@ int main() {
 				/*
 				 * Valid ECHO for current snapshot
 				 */
-				snapshot.out.remove(msg.from);
+				list<int>::iterator it;
+				for (it = snapshot.out.begin(); it != snapshot.out.end(); it++)
+					if (*it == msg.from) {
+						snapshot.out.erase(it);
+						break;
+					}
 				if (!snapshot.s) {
 					if (myId == msg.init)
 						goto MSG_SHORT_;
@@ -653,7 +677,7 @@ int main() {
 							printf("Algorithm finished. NO DEADLOCK\n");
 							fflush(0);
 							int decision = NO_DEADLOCK;
-							pvm_initsend(PvmDataDefault);
+							pvm_initsend( PvmDataDefault);
 							pvm_pkint(&decision, 1, 1);
 							pvm_send(detectorId, MSG_DEADLOCK_INFO);
 							break;
@@ -700,7 +724,7 @@ int main() {
 				printf("I am active. No deadlock\n");
 				fflush(0);
 				int decision = NO_DEADLOCK;
-				pvm_initsend(PvmDataDefault);
+				pvm_initsend( PvmDataDefault);
 				pvm_pkint(&decision, 1, 1);
 				pvm_send(detectorId, MSG_DEADLOCK_INFO);
 				break;
@@ -716,23 +740,23 @@ int main() {
 			snapshot.s = true;
 			snapshot.p = state.p;
 			snapshot.out.clear();
-			for (list<int>::iterator it = requests.begin(); it
-					!= requests.end(); ++it)
+			for (list<int>::iterator it = state.out.begin(); it
+					!= state.out.end(); ++it)
 				snapshot.out.push_back(*it);
 
 			/*
 			 * Send FLOOD to all out of q nodes
 			 */
 			printf("p = %d. Sending FLOOD to all out of q nodes: ", snapshot.p);
-			for (list<int>::iterator it = requests.begin(); it
-					!= requests.end(); ++it) {
+			for (list<int>::iterator it = state.out.begin(); it
+					!= state.out.end(); ++it) {
 				printf("%x ", tids[resources[*it]]);
 				if (myId == resources[*it]) {
-					state.weight += 1.0f / (float) requests.size();
+					state.weight += 1.0f / (float) state.out.size();
 					continue;
 				}
 				Msg flood(myId, resources[*it], MSG_FLOOD);
-				flood.weight = 1.0f / (float) requests.size();
+				flood.weight = 1.0f / (float) state.out.size();
 				flood.init = myId;
 				flood.starttime = state.time;
 				sendMessage(flood);
@@ -750,7 +774,7 @@ int main() {
 				for (i = 0; i < NODENUM; ++i) {
 					if (i == myId)
 						continue;
-					pvm_initsend(PvmDataDefault);
+					pvm_initsend( PvmDataDefault);
 					pvm_pkint(&i, 1, 1);
 					pvm_pkint(&temp, 1, 1);
 					pvm_send(tids[i], MSG_STOP);
@@ -768,7 +792,7 @@ int main() {
 	pvm_barrier((char*) "stop", NODENUM);
 
 	if (initId) {
-		pvm_initsend(PvmDataDefault);
+		pvm_initsend( PvmDataDefault);
 		pvm_send(initId, MSG_STOP);
 		sleep(1);
 	}

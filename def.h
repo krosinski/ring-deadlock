@@ -10,6 +10,7 @@
 #include <list>
 #include <iostream>
 #include <fstream>
+#include <set>
 #include <string>
 
 #include "messages.h"
@@ -29,8 +30,8 @@
 #define FREE_PROB 		0.5
 
 /* number of requested resources */
-#define REQUEST_MIN 	2
-#define REQUEST_MAX 	8
+#define REQUEST_MIN 	12
+#define REQUEST_MAX 	18
 
 #define MSG_MSTR 		1
 #define MSG_SLV  		2
@@ -61,10 +62,11 @@
 #define	NO_DEADLOCK			0
 #define DEADLOCK			1
 
-#define EPS					0.0001
+#define EPS					0.001
 
 /* structures */
 typedef struct {
+	bool flag; /* set to true after first snapshot is done */
 	std::list<int> out; /* nodes on which i-th is waiting */
 	std::list<int> in; /* nodes waiting on i in the snapshot */
 	int t; /* time when init initiated a snapshot */
@@ -86,4 +88,6 @@ typedef struct {
 	std::map<int, int> granted; /* list of resources granted [which] = who*/
 	int p;
 	float weight;
+	int init;
+	int starttime;
 } STATE;
