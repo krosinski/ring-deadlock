@@ -30,8 +30,8 @@
 #define FREE_PROB 		0.5
 
 /* number of requested resources */
-#define REQUEST_MIN 	12
-#define REQUEST_MAX 	18
+#define REQUEST_MIN 	2
+#define REQUEST_MAX 	8
 
 #define MSG_MSTR 		1
 #define MSG_SLV  		2
@@ -86,6 +86,7 @@ typedef struct {
 	std::list<int> out; /* list of resources wanted by current node */
 	std::list<int> inUse; /* list of resources granted */
 	std::map<int, int> granted; /* list of resources granted [which] = who*/
+	bool resFree[RESOURCE_NUM]; /* array of booleans if res is free or not */
 	int p;
 	float weight;
 	int init;

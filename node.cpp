@@ -148,9 +148,8 @@ void grantFreeResources() {
 	 * for it. Only unique resources are possible
 	 */
 	for (i = state.in.begin(); i != state.in.end(); ++i)
-		if ((state.granted.find(i->resource) != state.granted.end())
-				&& (resourcesToGrant.find(i->resource)
-						== resourcesToGrant.end())) {
+		if ((state.resFree[i->resource]) && (resourcesToGrant.find(i->resource)
+				== resourcesToGrant.end())) {
 			toGrant.push_back(*i);
 			resourcesToGrant.insert(i->resource);
 		}
@@ -204,6 +203,55 @@ inline int pos(int base, int offset) {
 }
 
 /*
+ * printState()
+ */
+void printState() {
+	printf("wait:\t%s\n", state.wait ? "true" : "false");
+	printf("time:\t%d\n", state.time);
+	printf("timeBlock:\t%d\n", state.timeBlock);
+	list<REQUEST>::iterator in = state.in.begin();
+	if (in != state.in.end()) {
+		printf("in:\t\t(%d, %d)", in->from, in->resource);
+		for (in++; in != state.in.end(); in++)
+			printf(", (%d, %d)", in->from, in->resource);
+		printf("\n");
+	}
+	list<int>::iterator out = state.out.begin();
+	if (out != state.out.end()) {
+		printf("out:\t\t%d", *out);
+		for (out++; out != state.out.end(); out++)
+			printf(", %d", *out);
+		printf("\n");
+	}
+	out = state.inUse.begin();
+	if (out != state.inUse.end()) {
+		printf("inUse:\t%d", *out);
+		for (out++; out != state.inUse.end(); out++)
+			printf(", %d", *out);
+		printf("\n");
+	}
+	map<int, int>::iterator granted = state.granted.begin();
+	if (granted != state.granted.end()) {
+		printf("granted:\t(%d, %d)", granted->second, granted->first);
+		for (granted++; granted != state.granted.end(); granted++)
+			printf(", (%d, %d)", granted->second, granted->first);
+		printf("\n");
+	}
+	printf("resFree:\t%s", state.resFree[0] ? "1" : "0");
+	int i;
+	for (i = 1; i < RESOURCE_NUM; ++i)
+		printf(", %s", state.resFree[i] ? "1" : "0");
+	printf("\n");
+	printf("p:\t\t%d\n", state.p);
+	printf("weight:\t%f\n", state.weight);
+	printf("init:\t%d\n", state.init);
+	printf("starttime:\t%d\n", state.starttime);
+
+	fflush(0);
+	fflush(0);
+}
+
+/*
  * randomizeRequests()
  */
 void randomizeRequests() {
@@ -234,8 +282,11 @@ void randomizeRequests() {
  * Executed by node i when it receives a cancel from j
  */
 void receiveCancel(REQUEST &req) {
-	if (state.granted.find(req.resource) != state.granted.end())
+	if ((state.granted.find(req.resource) != state.granted.end())
+			&& (state.granted[req.resource] == req.from)) {
 		state.granted.erase(req.resource);
+		state.resFree[req.resource] = true;
+	}
 	listRemove(state.in, req);
 	return;
 }
@@ -246,6 +297,7 @@ void receiveCancel(REQUEST &req) {
 void receiveFree(REQUEST &req) {
 	listRemove(state.in, req);
 	state.granted.erase(req.resource);
+	state.resFree[req.resource] = true;
 
 	list<REQUEST>::iterator i;
 	for (i = state.in.begin(); i != state.in.end(); ++i)
@@ -297,7 +349,7 @@ void receiveRequest(REQUEST &request) {
  * repliesNeeded()
  */
 inline int repliesNeeded() {
-	return state.out.size() / 2;
+	return 1 + rand() % state.out.size();
 }
 
 /*
@@ -323,6 +375,8 @@ void request(int from, int to, int res) {
 	req.from = from;
 	req.resource = res;
 	receiveRequest(req);
+	if (state.resFree[req.resource])
+		sendReply(req);
 }
 
 /*
@@ -347,6 +401,7 @@ void sendMessage(Msg &msg) {
  */
 void sendReply(REQUEST &req) {
 	listRemove(state.in, req);
+	state.resFree[req.resource] = false;
 	state.granted[req.resource] = req.from;
 	reply(myId, req.from, req.resource);
 }
@@ -383,6 +438,9 @@ int main() {
 	state.granted.clear();
 	state.p = 0;
 	state.weight = 1.0;
+	int i;
+	for (i = 0; i < RESOURCE_NUM; ++i)
+		state.resFree[i] = true;
 
 	snapshot.out.clear();
 	snapshot.in.clear();
@@ -419,7 +477,7 @@ int main() {
 		/*
 		 * Random "processing" time
 		 */
-		//sleep(1);//rand() & 3);
+		sleep(rand() & 3);
 
 		/*
 		 * Grant all resources that are free, but some node waits for them
@@ -504,7 +562,7 @@ int main() {
 			 * Save the request on a list. Grant immediately if needed
 			 */
 			receiveRequest(req);
-			if (state.granted.find(req.resource) == state.granted.end())
+			if (state.resFree[req.resource])
 				sendReply(req);
 			break;
 
@@ -529,6 +587,23 @@ int main() {
 			 */
 		case MSG_FLOOD:
 			if (myId != msg.init) {
+				/*
+				 * If sender is not on the 'in' list, then answer
+				 * with ECHO immediately
+				 */
+				list<REQUEST>::iterator i;
+				for (i = state.in.begin(); i != state.in.end(); i++)
+					if (i->from == msg.init)
+						break;
+				if (i == state.in.end()) {
+					Msg echo(myId, msg.from, MSG_ECHO);
+					echo.weight = msg.weight;
+					echo.init = msg.init;
+					echo.starttime = msg.starttime;
+					sendMessage(echo);
+					break;
+				}
+
 				if (snapshot.t < msg.starttime) {
 					/*
 					 * Create new snapshot
@@ -623,14 +698,12 @@ int main() {
 			 */
 		case MSG_SHORT:
 			MSG_SHORT_: ;
-			/* FIXME
-			 if (!state.wait) {
-			 int decision = NO_DEADLOCK;
-			 pvm_initsend( PvmDataDefault);
-			 pvm_pkint(&decision, 1, 1);
-			 pvm_send(detectorId, MSG_DEADLOCK_INFO);
-			 }
-			 */
+			if (!state.wait) {
+				int decision = NO_DEADLOCK;
+				pvm_initsend( PvmDataDefault);
+				pvm_pkint(&decision, 1, 1);
+				pvm_send(detectorId, MSG_DEADLOCK_INFO);
+			}
 			if ((snapshot.t == msg.starttime) && (snapshot.s == true)) {
 				state.weight += msg.weight;
 				printf("SHORT for currently initiated snapshot. Weight: %f\n",
@@ -786,6 +859,8 @@ int main() {
 		default:
 			break;
 		}
+		/* FIXME */
+		//printState();
 	}
 
 	pvm_joingroup((char*) "stop");
