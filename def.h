@@ -15,7 +15,7 @@
 
 #include "messages.h"
 
-#define TMP_FILE		"/tmp/note0.txt"
+#define TMP_FILE		"/tmp/node0.txt"
 #define NODENAME		"node"
 #define NODENUM			10
 

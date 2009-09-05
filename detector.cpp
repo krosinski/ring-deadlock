@@ -9,16 +9,22 @@
 
 using namespace std;
 
-int main() {
+int main(int argc, char** argv) {
 	printf("Deadlock detection started\n");
 	fflush(0);
 
-	string temp;
+	string temp[20];
 	ifstream ifs(TMP_FILE);
-	getline(ifs, temp);
-	int nodeToCheck = atoi(temp.c_str());
+	int i=0;
+	while (!ifs.eof()){
+		getline(ifs, temp[i++]);
+		printf(temp[i-1].c_str());
+		printf("\n");
+	}
+	int num = atoi(argv[1]);
+	int nodeToCheck = atoi(temp[num].c_str());
 
-	printf("nodeToCheck = %X\n", nodeToCheck);
+	printf("nodeToCheck = %d tid: %X\n",num, nodeToCheck);
 	fflush(0);
 
 	/*

@@ -92,7 +92,8 @@ int main(int argc, char **argv) {
 
 	ofstream outputFile;
 	outputFile.open(TMP_FILE);
-	outputFile << tids[0];
+	for (i=0 ;i< childrenCount; ++i)
+		outputFile << tids[i] << "\n";
 	outputFile.close();
 
 	pvm_exit();
