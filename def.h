@@ -62,7 +62,7 @@
 #define	NO_DEADLOCK			0
 #define DEADLOCK			1
 
-#define EPS					0.001
+#define EPS					0.01
 
 /* structures */
 typedef struct {

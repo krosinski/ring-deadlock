@@ -86,7 +86,7 @@ int main(int argc, char **argv) {
 		for (j = 0; j < RESOURCE_NUM; ++j)
 			pvm_pkint(&resources[j], 1, 1);
 
-		printf("Wysylam %d\n", i);
+		printf("Wysylam %d [ %d ]\n ", i, tids[i]);
 		pvm_send(tids[i], MSG_INIT);
 	}
 

@@ -477,7 +477,7 @@ int main() {
 		/*
 		 * Random "processing" time
 		 */
-		sleep(rand() & 3);
+		usleep(rand()%1000000);//0-1 sec
 
 		/*
 		 * Grant all resources that are free, but some node waits for them
@@ -710,6 +710,7 @@ int main() {
 						state.weight);
 				fflush(0);
 				if (state.weight >= 1.0f - EPS) {
+					//printf("sending response to [%d]\n", detectorId);
 					int decision = DEADLOCK;
 					pvm_initsend( PvmDataDefault);
 					pvm_pkint(&decision, 1, 1);
@@ -788,7 +789,9 @@ int main() {
 
 		case MSG_START_ALG:
 			pvm_upkint(&detectorId, 1, 1);
-
+			//printf("Detector tid:[%d]\n", detectorId);
+			fflush(0);
+			fflush(0);
 			/*
 			 * If selected node is active, it does not look for
 			 * deadlock in its neighbourhood
