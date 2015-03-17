@@ -1,0 +1,1 @@
+This is our project for the Distributed Computing course on Poznan University of Technology.
